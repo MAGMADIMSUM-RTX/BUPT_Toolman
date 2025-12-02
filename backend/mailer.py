@@ -4,7 +4,7 @@ import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.header import Header
-from email.utils import formataddr
+from email.utils import formataddr, formatdate, make_msgid
 from typing import Optional, Tuple
 from pathlib import Path
 
@@ -25,6 +25,7 @@ SMTP_USER = os.environ.get("SMTP_USER")
 SMTP_PASS = os.environ.get("SMTP_PASS")
 SMTP_SENDER = os.environ.get("SMTP_SENDER") or SMTP_USER or "noreply@example.com"
 SMTP_SENDER_NAME = os.environ.get("SMTP_SENDER_NAME", "泥邮工具人")
+# print(SMTP_HOST,SMTP_PORT,SMTP_USER,SMTP_PASS)
 
 # 初始化 Jinja2 环境
 TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -103,7 +104,7 @@ def _resolve_sender() -> Tuple[str, str]:
 
     return header_value, email_addr
 
-def send_email(to_email: str, subject: str, content: str, html: Optional[str] = None) -> bool:
+def send_email(to_email: str, subject: str, content: str, html: Optional[str] = None, to_name: Optional[str] = None) -> bool:
     """
     发送邮件。
     
@@ -111,6 +112,7 @@ def send_email(to_email: str, subject: str, content: str, html: Optional[str] = 
     :param subject: 邮件主题
     :param content: 纯文本内容
     :param html: HTML 内容（可选）
+    :param to_name: 收件人名称（可选）
     :return: 是否成功
     """
     if not to_email:
@@ -123,8 +125,15 @@ def send_email(to_email: str, subject: str, content: str, html: Optional[str] = 
     
     formatted_from, envelope_sender = _resolve_sender()
     msg['From'] = formatted_from
-    msg['To'] = Header(to_email, 'utf-8')
+    
+    if to_name:
+        msg['To'] = formataddr((str(Header(to_name, 'utf-8')), to_email))
+    else:
+        msg['To'] = to_email
+
     msg['Subject'] = Header(subject, 'utf-8')
+    msg['Date'] = formatdate(localtime=True)
+    msg['Message-ID'] = make_msgid()
 
     if html:
         msg.attach(MIMEText(content, 'plain', 'utf-8'))
@@ -140,9 +149,13 @@ def send_email(to_email: str, subject: str, content: str, html: Optional[str] = 
         if SMTP_USER and SMTP_PASS:
             server.login(SMTP_USER, SMTP_PASS)
         
-        server.sendmail(envelope_sender, [to_email], msg.as_string())
+        failed = server.sendmail(envelope_sender, [to_email], msg.as_string())
         server.quit()
         
+        if failed:
+            logger.error(f"邮件发送失败，被服务器拒绝的收件人: {failed}")
+            return False
+
         logger.info(f"邮件发送成功: {to_email}")
         return True
     except Exception as e:
@@ -166,7 +179,8 @@ if __name__ == "__main__":
         
         # 发送测试
         send_email(
-            to_email="rombielhuang@163.com", # 替换为你的测试邮箱
+            to_email="2268796865@qq.com", # 替换为你的测试邮箱
+            to_name="测试用户",
             subject="注册验证 - 测试邮件",
             content="请查看 HTML 版本。",
             html=html_content

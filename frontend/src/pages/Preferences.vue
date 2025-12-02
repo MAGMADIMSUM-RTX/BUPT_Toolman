@@ -58,7 +58,9 @@ export default {
       try {
         const res = await fetch(`${API_BASE_URL}/labels`)
         if (res.ok) {
-          this.labels = await res.json()
+          const allLabels = await res.json()
+          // Only show labels that are marked as prefered
+          this.labels = allLabels.filter(l => l.prefered)
         }
       } catch (e) {
         console.error('Failed to fetch labels', e)

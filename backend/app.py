@@ -9,10 +9,13 @@ import threading
 app = Flask(__name__)
 CORS(app)
 
+APP_NAME = "泥邮工具人"
+BACKEND_URL = "http://localhost:5000"
+FRONTEND_URL = "http://localhost:5173"
 
 @app.route("/")
 def hello():
-    return jsonify({"message": "Hello from Flask!"})
+    return jsonify({"message": "Invalid request"})
 
 
 @app.route("/labels", methods=["GET"])
@@ -44,14 +47,14 @@ def create_user():
         user = db_module.create_user(name, email, pswd_hash, verified=False, confirmation_token=confirmation_token)
         
         # Generate confirmation URL
-        confirmation_url = f"http://localhost:5000/user/confirm?token={confirmation_token}"
+        confirmation_url = f"{FRONTEND_URL}/confirm?token={confirmation_token}"
         
         # Send email
         html = mailer.render_template(
             'register.html',
             user_name=name,
             confirmation_url=confirmation_url,
-            app_name='我们的应用',
+            app_name=APP_NAME,
             support_email='support@example.com',
             current_year=2025
         )
@@ -61,6 +64,7 @@ def create_user():
             target=mailer.send_email,
             kwargs={
                 'to_email': email,
+                'to_name': name,
                 'subject': "完成注册 - 我们的应用",
                 'content': "请点击链接完成注册。",
                 'html': html
@@ -127,9 +131,12 @@ def create_good():
     # Handle form data types (everything is string in form)
     if request.form:
         try:
-            if seller_id: seller_id = int(seller_id)
-            if num: num = int(num)
-            if value: value = float(value)
+            if seller_id:
+                seller_id = int(seller_id)
+            if num:
+                num = int(num)
+            if value:
+                value = float(value)
             # labels might be tricky from a simple form, maybe skip or parse comma separated
             if labels and isinstance(labels, str):
                 # assume comma separated for form
@@ -156,12 +163,13 @@ def create_good():
                                 product_name=name,
                                 product_price=value,
                                 product_description=description,
-                                product_url=f"http://localhost:5173/goods/{good['id']}", # Assuming frontend URL
-                                app_name='我们的应用',
+                                product_url=f"{FRONTEND_URL}/goods/{good['id']}", # Assuming frontend URL
+                                app_name=APP_NAME,
                                 current_year=2025
                             )
                             mailer.send_email(
                                 to_email=user.get('email'),
+                                to_name=user.get('name'),
                                 subject=f"新品上架通知：{name}",
                                 content=f"新品 {name} 上架了，快来看看！",
                                 html=html
@@ -216,9 +224,12 @@ def create_order():
 
     if request.form:
         try:
-            if buyer_id: buyer_id = int(buyer_id)
-            if goods_id: goods_id = int(goods_id)
-            if num: num = int(num)
+            if buyer_id:
+                buyer_id = int(buyer_id)
+            if goods_id:
+                goods_id = int(goods_id)
+            if num:
+                num = int(num)
         except ValueError:
             return jsonify({"error": "Invalid data types"}), 400
     
@@ -257,9 +268,8 @@ def update_order_status(order_id):
 
 
 if __name__ == "__main__":
-    # Ensure DB exists for quick local dev
     try:
         db_module.init_db()
     except Exception:
         pass
-    app.run(debug=True)
+    app.run(debug=True,host="0.0.0.0",port="5000")
