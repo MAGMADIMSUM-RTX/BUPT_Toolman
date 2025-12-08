@@ -131,9 +131,29 @@ def login():
             stored_hash = user['pswd_hash']
             if isinstance(stored_hash, str):
                 stored_hash = stored_hash.encode('utf-8')
-            
+
             # 验证密码
             if bcrypt.checkpw(password.encode('utf-8'), stored_hash):
+                # 在允许登录前，检查邮箱是否已验证
+                try:
+                    verified = user['verified']
+                except Exception:
+                    # 如果 Row 不支持直接索引（极少见），尝试通过 get
+                    try:
+                        verified = user.get('verified')
+                    except Exception:
+                        verified = None
+
+                # 归一化可能的字符串/数字表示
+                if isinstance(verified, str):
+                    if verified.isdigit():
+                        verified = int(verified)
+                    else:
+                        verified = verified.lower() in ("true", "1", "yes")
+
+                if not verified:
+                    return jsonify({"error": "请先验证邮箱后再登录"}), 403
+
                 # 登录成功，返回数据
                 return jsonify({
                     "message": "Login successful",
@@ -141,7 +161,7 @@ def login():
                         "id": user['id'],
                         "name": user['name'],
                         "email": user['email'],
-                        "avatar": f"https://picsum.photos/seed/{user['id']}/150/150", # 模拟头像
+                        "avatar": f"https://picsum.photos/seed/{user['id']}/150/150",
                         "balance": 0.00,
                         "creditScore": 100
                     }
