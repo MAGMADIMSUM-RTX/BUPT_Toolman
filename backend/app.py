@@ -468,11 +468,15 @@ def upload_media():
             filename = f"avatar_{target_id}.{ext}"
             # 删除旧头像
             for old_ext in ALLOWED_EXTENSIONS:
-                old_path = os.path.join(UPLOAD_FOLDER+"user", f"avatar_{target_id}.{old_ext}")
+                old_path = os.path.join(UPLOAD_FOLDER+"/user", f"avatar_{target_id}.{old_ext}")
                 if os.path.exists(old_path):
                     os.remove(old_path)
             
-            file.save(os.path.join(UPLOAD_FOLDER+"user", filename))
+            # 确保目录存在
+            user_dir = os.path.join(UPLOAD_FOLDER, "user")
+            os.makedirs(user_dir, exist_ok=True)
+            
+            file.save(os.path.join(user_dir, filename))
             saved_files.append(filename)
         else:
              return jsonify({"error": "Invalid file type"}), 400
@@ -481,18 +485,22 @@ def upload_media():
         if len(files) > 9:
             return jsonify({"error": "Goods media limit is 9"}), 400
         
+        # 确保目录存在
+        good_dir = os.path.join(UPLOAD_FOLDER, f"good_{target_id}")
+        os.makedirs(good_dir, exist_ok=True)
+        
         for i, file in enumerate(files):
             if file and allowed_file(file.filename):
                 ext = file.filename.rsplit('.', 1)[1].lower()
                 filename = f"good_{target_id}_{i}.{ext}"
-                file.save(os.path.join(UPLOAD_FOLDER+f"goods{target_id}", filename))
+                file.save(os.path.join(good_dir, filename))
                 saved_files.append(filename)
             else:
                 return jsonify({"error": f"File {file.filename} invalid"}), 400
     else:
         return jsonify({"error": "Invalid upload type"}), 400
 
-    return jsonify({"message": "Upload successful", "files": saved_files}), 201
+    return jsonify({"message": "Upload successful"}), 201
 
 
 if __name__ == "__main__":
