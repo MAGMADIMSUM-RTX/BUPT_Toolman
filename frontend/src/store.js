@@ -5,14 +5,14 @@ import { API_BASE_URL } from './config.js'
 const MOCK_TASKS = [
   { id: 't1', title: '北门取快递', status: '待接单', bounty: 5, location: '北门 -> A栋', notes: '文件袋', createdAt: Date.now() },
 ]
-const MOCK_MESSAGES = []
 
 export const store = reactive({
   state: {
     currentUser: JSON.parse(localStorage.getItem('user')) || null,
     items: [],
     tasks: [...MOCK_TASKS],
-    messages: [...MOCK_MESSAGES]
+    messages: [],
+    users: {} // 缓存用户信息
   },
 
   // --- 登录逻辑 ---
@@ -38,6 +38,8 @@ export const store = reactive({
 
   logout() {
     this.state.currentUser = null
+    this.state.messages = []
+    this.state.users = {}
     localStorage.removeItem('user')
   },
 

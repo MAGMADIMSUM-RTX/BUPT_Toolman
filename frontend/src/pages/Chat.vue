@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { store } from '../store'
 import { Send, MessageSquare } from 'lucide-vue-next'
 
@@ -7,17 +7,17 @@ const currentUser = computed(() => store.state.currentUser)
 const text = ref('')
 const activeChatUser = ref(null)
 const scrollRef = ref(null)
+const loading = ref(true)
+let pollInterval = null
 
 const chatUsers = computed(() => {
   if (!currentUser.value) return []
-  const messages = store.state.messages
-  const myId = currentUser.value.id
-  const userIds = new Set()
-  messages.forEach(m => {
-    if (m.senderId === myId) userIds.add(m.receiverId)
-    if (m.receiverId === myId) userIds.add(m.senderId)
-  })
-  return Array.from(userIds).map(id => store.getUser(id)).filter(Boolean)
+  // 返回所有有过消息的用户，如果没有则返回当前激活用户
+  const users = Object.values(store.state.users).filter(Boolean)
+  if (users.length === 0 && activeChatUser.value) {
+    return [activeChatUser.value]
+  }
+  return users
 })
 
 const scrollToBottom = async () => {
@@ -27,10 +27,56 @@ const scrollToBottom = async () => {
   }
 }
 
-onMounted(() => {
-  if (!activeChatUser.value && chatUsers.value.length > 0) {
-    activeChatUser.value = chatUsers.value[0]
+// 启动消息轮询
+const startPolling = async () => {
+  if (pollInterval) clearInterval(pollInterval)
+  
+  // 首次立即加载
+  if (activeChatUser.value && currentUser.value) {
+    await store.loadMessagesWithUser(activeChatUser.value.id)
   }
+  
+  // 每 0.5 秒检查一次新消息
+  pollInterval = setInterval(async () => {
+    if (activeChatUser.value && currentUser.value) {
+      await store.loadMessagesWithUser(activeChatUser.value.id)
+    }
+  }, 500)
+}
+
+// 停止消息轮询
+const stopPolling = () => {
+  if (pollInterval) {
+    clearInterval(pollInterval)
+    pollInterval = null
+  }
+}
+
+onMounted(async () => {
+  if (!currentUser.value) return
+  
+  // 检查是否有预设的对话用户（从商品详情页面跳转过来）
+  const presetUser = Object.values(store.state.users).find(u => u && u.id)
+  
+  if (presetUser) {
+    // 直接使用预设的用户
+    activeChatUser.value = presetUser
+    loading.value = false
+  } else {
+    // 加载对话列表
+    const result = await store.loadChatUsers()
+    if (result.success && result.users.length > 0) {
+      activeChatUser.value = result.users[0]
+    }
+    loading.value = false
+  }
+  
+  // 启动轮询
+  startPolling()
+})
+
+onUnmounted(() => {
+  stopPolling()
 })
 
 const activeMessages = computed(() => {
@@ -42,12 +88,31 @@ const activeMessages = computed(() => {
 })
 
 watch(activeMessages, scrollToBottom, { deep: true })
-watch(activeChatUser, scrollToBottom)
 
-const handleSend = () => {
+watch(activeChatUser, async (newUser) => {
+  if (newUser && currentUser.value) {
+    scrollToBottom()
+    // 重启轮询以加载新对话的消息
+    startPolling()
+  }
+})
+
+const handleSend = async () => {
   if (!text.value.trim() || !activeChatUser.value) return
-  store.sendMessage(activeChatUser.value.id, text.value)
+  
+  const messageText = text.value.trim()
   text.value = ''
+  
+  const result = await store.sendMessage(activeChatUser.value.id, messageText)
+  if (!result.success) {
+    alert('发送失败：' + result.message)
+    text.value = messageText // 恢复文本
+  } else {
+    // 确保该用户在对话列表中
+    if (!store.state.users[activeChatUser.value.id]) {
+      store.setActiveChatUser(activeChatUser.value)
+    }
+  }
 }
 </script>
 
@@ -56,7 +121,8 @@ const handleSend = () => {
     <div class="sidebar">
       <div class="sidebar-header">消息列表</div>
       <div class="user-list">
-        <div v-if="chatUsers.length === 0" class="empty-list">暂无消息</div>
+        <div v-if="loading" class="empty-list">加载中...</div>
+        <div v-else-if="chatUsers.length === 0" class="empty-list">暂无消息</div>
         <div 
           v-for="u in chatUsers" 
           :key="u.id"
@@ -100,7 +166,8 @@ const handleSend = () => {
         <div class="empty-icon-circle">
           <MessageSquare size="40" stroke-width="1.5" />
         </div>
-        <p>选择一个联系人开始聊天</p>
+        <p v-if="!loading">选择一个联系人开始聊天</p>
+        <p v-else>加载中...</p>
       </div>
     </div>
   </div>

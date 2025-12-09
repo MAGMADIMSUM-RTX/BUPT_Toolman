@@ -51,6 +51,7 @@ def init_db() -> None:
 		CREATE TABLE IF NOT EXISTS goods (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			seller_id INTEGER NOT NULL,
+			type BOOLEAN DEFAULT FALSE,
 			name TEXT NOT NULL,
 			num INTEGER NOT NULL,
 			sold_num INTEGER NOT NULL,
@@ -71,6 +72,16 @@ def init_db() -> None:
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY(goods_id) REFERENCES goods(id),
 			FOREIGN KEY(buyer_id) REFERENCES users(id)
+		);
+
+		CREATE TABLE IF NOT EXISTS messages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			sender_id INTEGER NOT NULL,
+			receiver_id INTEGER NOT NULL,
+			text TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY(sender_id) REFERENCES users(id),
+			FOREIGN KEY(receiver_id) REFERENCES users(id)
 		);
 		"""
 	)
@@ -116,9 +127,10 @@ def get_user(user_id: int) -> Optional[Dict]:
 	return data
 
 
-def get_goods_by_seller(seller_id: int) -> List[Dict]:
+def get_goods_by_seller(seller_id: int, is_good: bool) -> List[Dict]:
 	conn = _get_conn()
-	rows = conn.execute("SELECT * FROM goods WHERE seller_id = ?", (seller_id,)).fetchall()
+	type_filter = 0 if is_good else 1
+	rows = conn.execute("SELECT * FROM goods WHERE seller_id = ? AND type = ?", (seller_id, type_filter)).fetchall()
 	conn.close()
 	results = []
 	for row in rows:
@@ -144,7 +156,7 @@ def create_user(name: str, email: Optional[str] = None, pswd_hash: Optional[str]
 	return _row_to_dict(row)
 
 
-def create_good(name: str, seller_id: int,  num: int, value: float, description: str, status: str = "available", labels: Optional[List[int]] = None) -> Optional[Dict]:
+def create_good(name: str, seller_id: int,  num: int, value: float, description: str, status: str = "available", labels: Optional[List[int]] = None, type: bool = False) -> Optional[Dict]:
 	"""Create a good. `labels` should be a list of ints (category/tag ids).
 	Returns the created row as a dict.
 	"""
@@ -152,8 +164,8 @@ def create_good(name: str, seller_id: int,  num: int, value: float, description:
 	cur = conn.cursor()
 	labels_json = _serialize_labels(labels)
 	cur.execute(
-		"INSERT INTO goods (seller_id, name, num, sold_num, labels, value, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		(seller_id, name,  num, 0, labels_json, value, description, status),
+		"INSERT INTO goods (seller_id, name, num, sold_num, labels, value, description, status, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		(seller_id, name, num, 0, labels_json, value, description, status, type),
 	)
 	conn.commit()
 	good_id = cur.lastrowid
@@ -178,10 +190,11 @@ def get_good(id: int) -> Optional[Dict]:
 	return data
 
 
-def get_random_goods(num: int) -> List[Dict]:
+def get_random_goods(num: int, is_task: bool) -> List[Dict]:
 	conn = _get_conn()
+	type_filter = 1 if is_task else 0
 	rows = conn.execute(
-		"SELECT * FROM goods WHERE status = 'available' ORDER BY RANDOM() LIMIT ?", (num,)
+		"SELECT * FROM goods WHERE status = 'available' AND type = ? ORDER BY RANDOM() LIMIT ?", (type_filter, num)
 	).fetchall()
 	conn.close()
 	results = []
@@ -316,3 +329,64 @@ def get_users_interested_in(tag_ids: List[int]) -> List[Dict]:
 			continue
 			
 	return interested_users
+
+
+def create_message(sender_id: int, receiver_id: int, text: str) -> Optional[Dict]:
+	"""创建消息"""
+	if not text or not text.strip():
+		raise ValueError("消息内容不能为空")
+	
+	if sender_id == receiver_id:
+		raise ValueError("不能给自己发送消息")
+	
+	conn = _get_conn()
+	cur = conn.cursor()
+	cur.execute(
+		"INSERT INTO messages (sender_id, receiver_id, text) VALUES (?, ?, ?)",
+		(sender_id, receiver_id, text.strip())
+	)
+	conn.commit()
+	message_id = cur.lastrowid
+	row = conn.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
+	conn.close()
+	return _row_to_dict(row)
+
+
+def get_messages_between(user_id1: int, user_id2: int) -> List[Dict]:
+	"""获取两个用户之间的所有消息"""
+	conn = _get_conn()
+	rows = conn.execute(
+		"""
+		SELECT * FROM messages 
+		WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+		ORDER BY created_at ASC
+		""",
+		(user_id1, user_id2, user_id2, user_id1)
+	).fetchall()
+	conn.close()
+	return [_row_to_dict(row) for row in rows]
+
+
+def get_latest_messages(user_id: int) -> List[Dict]:
+	"""获取当前用户最新对话列表（每个对话方只取最后一条消息）"""
+	conn = _get_conn()
+	# 获取与该用户有过沟通的所有用户ID及其最后一条消息
+	rows = conn.execute(
+		"""
+		SELECT DISTINCT 
+			CASE 
+				WHEN sender_id = ? THEN receiver_id
+				ELSE sender_id
+			END as other_user_id,
+			(SELECT * FROM messages m2 WHERE 
+				(m2.sender_id = m.sender_id AND m2.receiver_id = m.receiver_id) OR
+				(m2.sender_id = m.receiver_id AND m2.receiver_id = m.sender_id)
+			ORDER BY m2.created_at DESC LIMIT 1) as last_msg
+		FROM messages m
+		WHERE sender_id = ? OR receiver_id = ?
+		ORDER BY created_at DESC
+		""",
+		(user_id, user_id, user_id)
+	).fetchall()
+	conn.close()
+	return [_row_to_dict(row) for row in rows if row is not None]
