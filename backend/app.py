@@ -1,16 +1,3 @@
-import os
-
-# ==============================================================================
-# 【系统发件人配置】(必须配置，否则无法发送验证邮件)
-# 请去 QQ 邮箱 (或其他服务商) 获取 SMTP 授权码
-# ==============================================================================
-os.environ["SMTP_HOST"] = "smtp.qq.com"        # SMTP 服务器地址
-os.environ["SMTP_PORT"] = "465"                # SSL 端口
-os.environ["SMTP_USER"] = "12345678@qq.com"    # 【请替换】你的发件人邮箱账号
-os.environ["SMTP_PASS"] = "abcdefghijklmn"     # 【请替换】你的邮箱授权码
-os.environ["SMTP_SENDER"] = "泥邮工具人 <12345678@qq.com>" # 发件人显示名称
-# ==============================================================================
-
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import db as db_module
@@ -18,6 +5,8 @@ import bcrypt
 import secrets
 import mailer
 import threading
+import os
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 # 允许跨域请求
@@ -26,6 +15,15 @@ CORS(app)
 APP_NAME = "泥邮工具人"
 BACKEND_URL = "http://localhost:5000"
 FRONTEND_URL = "http://localhost:5173"
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'media')
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov', 'avi'}
+
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @app.route("/")
 def hello():
@@ -109,12 +107,11 @@ def login():
     用户登录接口 (新增)
     验证账号密码，成功则返回用户信息
     """
-    data = request.get_json(silent=True)
+    data = request.get_json(silent=True) or request.form
     if not data:
         return jsonify({"error": "No data"}), 400
     
-    # 兼容 studentId 或 email 登录
-    identifier = data.get("studentId") or data.get("email")
+    identifier = data.get("username")
     password = data.get("password")
 
     if not identifier or not password:
@@ -194,7 +191,58 @@ def confirm_user():
         return jsonify({"message": "User verified successfully"}), 200
     else:
         return jsonify({"error": "Verification failed"}), 500
+    
+@app.route("/user/<int:user_id>")
+def get_user_info(user_id):
+    """获取用户信息"""
+    user = db_module.get_user(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    
+    # 移除敏感信息
+    user.pop("pswd_hash", None)
+    user.pop("confirmation_token", None)
+    
+    # 添加头像链接
+    user["avatar"] = f"https://picsum.photos/seed/{user['id']}/150/150"
+    user["balance"] = 0.00
+    user["creditScore"] = 100
+    
+    return jsonify(user)
 
+
+@app.route("/user/<int:user_id>/goods")
+def get_user_goods(user_id):
+    """获取用户发布的商品"""
+    goods = db_module.get_goods_by_seller(user_id)
+    return jsonify(goods)
+
+
+@app.route("/user/<int:user_id>/orders")
+def get_user_orders(user_id):
+    """获取用户的订单（作为买家）"""
+    orders = db_module.get_orders_by_buyer(user_id)
+    # 丰富订单信息，加入商品详情
+    for order in orders:
+        good = db_module.get_good(order['goods_id'])
+        if good:
+            order['good_name'] = good['name']
+            order['good_value'] = good['value']
+            order['good_description'] = good['description']
+    return jsonify(orders)
+
+
+@app.route("/good/<int:good_id>/orders")
+def get_good_orders(good_id):
+    """获取某商品的订单（供卖家查看）"""
+    orders = db_module.get_orders_by_good(good_id)
+    # 丰富订单信息，加入买家详情
+    for order in orders:
+        buyer = db_module.get_user(order['buyer_id'])
+        if buyer:
+            order['buyer_name'] = buyer['name']
+            order['buyer_email'] = buyer['email']
+    return jsonify(orders)
 
 @app.route("/user/<int:user_id>/preferences", methods=["PUT"])
 def update_preferences(user_id):
@@ -383,6 +431,71 @@ def update_order_status(order_id):
             return jsonify({"error": "Update failed"}), 400
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+
+
+@app.route("/upload", methods=["POST"])
+def upload_media():
+    """
+    上传图片/视频接口
+    参数:
+    - type: 'avatar' | 'good'
+    - id: user_id | good_id
+    - files: 文件列表
+    """
+    if 'files' not in request.files:
+        return jsonify({"error": "No files part"}), 400
+    
+    files = request.files.getlist('files')
+    upload_type = request.form.get('type')
+    target_id = request.form.get('id')
+
+    if not files or not files[0].filename:
+        return jsonify({"error": "No selected file"}), 400
+    if not upload_type or not target_id:
+        return jsonify({"error": "Missing type or id"}), 400
+    
+    try:
+        target_id = int(target_id)
+    except ValueError:
+        return jsonify({"error": "Invalid id"}), 400
+
+    saved_files = []
+
+    if upload_type == 'avatar':
+        if len(files) > 1:
+            return jsonify({"error": "Avatar limit is 1"}), 400
+        
+        file = files[0]
+        if file and allowed_file(file.filename):
+            ext = file.filename.rsplit('.', 1)[1].lower()
+            filename = f"avatar_{target_id}.{ext}"
+            # 删除旧头像
+            for old_ext in ALLOWED_EXTENSIONS:
+                old_path = os.path.join(UPLOAD_FOLDER, f"avatar_{target_id}.{old_ext}")
+                if os.path.exists(old_path):
+                    os.remove(old_path)
+            
+            file.save(os.path.join(UPLOAD_FOLDER, filename))
+            saved_files.append(filename)
+        else:
+             return jsonify({"error": "Invalid file type"}), 400
+
+    elif upload_type == 'good':
+        if len(files) > 9:
+            return jsonify({"error": "Goods media limit is 9"}), 400
+        
+        for i, file in enumerate(files):
+            if file and allowed_file(file.filename):
+                ext = file.filename.rsplit('.', 1)[1].lower()
+                filename = f"good_{target_id}_{i}.{ext}"
+                file.save(os.path.join(UPLOAD_FOLDER, filename))
+                saved_files.append(filename)
+            else:
+                return jsonify({"error": f"File {file.filename} invalid"}), 400
+    else:
+        return jsonify({"error": "Invalid upload type"}), 400
+
+    return jsonify({"message": "Upload successful", "files": saved_files}), 201
 
 
 if __name__ == "__main__":

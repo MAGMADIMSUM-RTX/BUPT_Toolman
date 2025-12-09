@@ -106,6 +106,30 @@ def _deserialize_labels(s: Optional[str]) -> List[int]:
 		return []
 
 
+def get_user(user_id: int) -> Optional[Dict]:
+	conn = _get_conn()
+	row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+	conn.close()
+	data = _row_to_dict(row)
+	if data is not None and "prefer" in data:
+		data["prefer"] = _deserialize_labels(data.get("prefer"))
+	return data
+
+
+def get_goods_by_seller(seller_id: int) -> List[Dict]:
+	conn = _get_conn()
+	rows = conn.execute("SELECT * FROM goods WHERE seller_id = ?", (seller_id,)).fetchall()
+	conn.close()
+	results = []
+	for row in rows:
+		data = _row_to_dict(row)
+		if data is not None:
+			if "labels" in data:
+				data["labels"] = _deserialize_labels(data.get("labels"))
+			results.append(data)
+	return results
+
+
 def create_user(name: str, email: Optional[str] = None, pswd_hash: Optional[str] = None, verified: bool = False, confirmation_token: Optional[str] = None) -> Optional[Dict]:
 	conn = _get_conn()
 	cur = conn.cursor()
@@ -203,9 +227,35 @@ def get_order(order_id: int) -> Optional[Dict]:
 	row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
 	conn.close()
 	data = _row_to_dict(row)
-	if data is not None and "labels" in data:
-		data["labels"] = _deserialize_labels(data.get("labels"))
 	return data
+
+
+def get_orders_by_buyer(buyer_id: int) -> List[Dict]:
+	conn = _get_conn()
+	rows = conn.execute("SELECT * FROM orders WHERE buyer_id = ?", (buyer_id,)).fetchall()
+	conn.close()
+	return [_row_to_dict(row) for row in rows]
+
+
+def get_orders_by_good(goods_id: int) -> List[Dict]:
+	conn = _get_conn()
+	rows = conn.execute("SELECT * FROM orders WHERE goods_id = ?", (goods_id,)).fetchall()
+	conn.close()
+	return [_row_to_dict(row) for row in rows]
+
+
+def update_order_status(order_id: int, status: str) -> bool:
+	ALLOWED = ("pending", "processing", "completed", "cancelled")
+	if status not in ALLOWED:
+		raise ValueError(f"invalid order status: {status}")
+	conn = _get_conn()
+	cur = conn.cursor()
+	cur.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
+	conn.commit()
+	updated = cur.rowcount
+	conn.close()
+	return updated > 0
+
 
 def get_user_by_confirmation_token(token: str) -> Optional[Dict]:
 	conn = _get_conn()

@@ -4,18 +4,18 @@ import { useRouter } from 'vue-router'
 import { store } from '../store'
 import { UserCheck } from 'lucide-vue-next'
 
-const form = ref({ studentId: '', password: '' })
+const form = ref({ username: '', password: '' })
 const errorMsg = ref('')
 const loading = ref(false)
 const router = useRouter()
 
 const handleLogin = async () => {
-  if (!form.value.studentId || !form.value.password) return
+  if (!form.value.username || !form.value.password) return
   
   loading.value = true
   errorMsg.value = ''
   
-  const result = await store.login(form.value.studentId, form.value.password)
+  const result = await store.login(form.value.username, form.value.password)
   
   if (result.success) {
     router.push('/')
@@ -37,7 +37,7 @@ const handleLogin = async () => {
 
       <form @submit.prevent="handleLogin" class="login-form">
         <div class="form-group">
-          <input v-model="form.studentId" type="text" required placeholder="用户名 / 邮箱" class="form-input"/>
+          <input v-model="form.username" type="text" required placeholder="用户名 / 邮箱" class="form-input"/>
         </div>
         <div class="form-group">
           <input v-model="form.password" type="password" required placeholder="密码" class="form-input"/>

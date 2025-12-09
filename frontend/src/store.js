@@ -17,12 +17,12 @@ export const store = reactive({
   },
 
   // --- 真实登录逻辑 ---
-  async login(studentId, password) {
+  async login(username, password) {
     try {
       const res = await fetch(`${API_BASE_URL}/user/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId, password })
+        body: JSON.stringify({ username, password })
       })
       const data = await res.json()
       
