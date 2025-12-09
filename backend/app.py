@@ -50,7 +50,7 @@ def create_user():
     name = data.get("name")
     email = data.get("email")
     pswd = data.get("pswd")
-
+    # print(f"name:{name},")
     if not name:
         return jsonify({"error": "Name is required"}), 400
     if not pswd:
@@ -82,16 +82,13 @@ def create_user():
         
         # 定义异步发送任务
         def send_async_email():
-            try:
-                mailer.send_email(
-                    to_email=email,
-                    to_name=name,
-                    subject="完成注册 - 泥邮工具人",
-                    content="请点击链接完成注册。",
-                    html=html
-                )
-            except Exception as e:
-                print(f"邮件发送失败: {e}")
+            mailer.send_email(
+                to_email=email,
+                to_name=name,
+                subject="完成注册 - 泥邮工具人",
+                content="请点击链接完成注册。",
+                html=html
+            )
 
         # 启动线程发送邮件
         threading.Thread(target=send_async_email).start()
@@ -471,11 +468,11 @@ def upload_media():
             filename = f"avatar_{target_id}.{ext}"
             # 删除旧头像
             for old_ext in ALLOWED_EXTENSIONS:
-                old_path = os.path.join(UPLOAD_FOLDER, f"avatar_{target_id}.{old_ext}")
+                old_path = os.path.join(UPLOAD_FOLDER+"user", f"avatar_{target_id}.{old_ext}")
                 if os.path.exists(old_path):
                     os.remove(old_path)
             
-            file.save(os.path.join(UPLOAD_FOLDER, filename))
+            file.save(os.path.join(UPLOAD_FOLDER+"user", filename))
             saved_files.append(filename)
         else:
              return jsonify({"error": "Invalid file type"}), 400
@@ -488,7 +485,7 @@ def upload_media():
             if file and allowed_file(file.filename):
                 ext = file.filename.rsplit('.', 1)[1].lower()
                 filename = f"good_{target_id}_{i}.{ext}"
-                file.save(os.path.join(UPLOAD_FOLDER, filename))
+                file.save(os.path.join(UPLOAD_FOLDER+f"goods{target_id}", filename))
                 saved_files.append(filename)
             else:
                 return jsonify({"error": f"File {file.filename} invalid"}), 400

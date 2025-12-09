@@ -18,22 +18,13 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# SMTP 配置
-
-SMTP_HOST = "smtp.qq.com"                # 例如: smtp.qq.com
-SMTP_PORT = 465                          # 通常 SSL 端口是 465
-SMTP_USER = "123@qq.com"            # 【替换】您的发件人邮箱
-SMTP_PASS = "qwq"             # 【替换】您的邮箱授权码 
-SMTP_SENDER = "泥邮工具人 <123@qq.com>" # 【替换】发件人显示名称 <邮箱>
-SMTP_SENDER_NAME = "泥邮工具人"
-
-# SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.exmail.qq.com")
-# SMTP_PORT = int(os.environ.get("SMTP_PORT", 465))
-# SMTP_USER = os.environ.get("SMTP_USER")
-# SMTP_PASS = os.environ.get("SMTP_PASS")
-# SMTP_SENDER = os.environ.get("SMTP_SENDER") or SMTP_USER or "noreply@example.com"
-# SMTP_SENDER_NAME = os.environ.get("SMTP_SENDER_NAME", "泥邮工具人")
-print(SMTP_HOST,SMTP_PORT,SMTP_USER,SMTP_PASS)
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.exmail.qq.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", 465))
+SMTP_USER = os.environ.get("SMTP_USER")
+SMTP_PASS = os.environ.get("SMTP_PASS")
+SMTP_SENDER = os.environ.get("SMTP_SENDER") or SMTP_USER or "noreply@example.com"
+SMTP_SENDER_NAME = os.environ.get("SMTP_SENDER_NAME", "泥邮工具人")
+# print(SMTP_HOST,SMTP_PORT,SMTP_USER,SMTP_PASS)
 
 # 初始化 Jinja2 环境
 TEMPLATE_DIR = Path(__file__).parent / "templates"
