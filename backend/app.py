@@ -503,6 +503,119 @@ def upload_media():
     return jsonify({"message": "Upload successful"}), 201
 
 
+@app.route("/messages", methods=["POST"])
+def send_message():
+    """
+    发送消息接口
+    POST 数据: { "receiver_id": int, "text": string }
+    """
+    data = request.get_json(silent=True) or request.form
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    # 实际项目中应从 JWT token 或 session 中获取发送者ID
+    # 这里为了演示，从 headers 中获取 X-User-ID
+    sender_id_header = request.headers.get("X-User-ID")
+    if not sender_id_header:
+        return jsonify({"error": "Sender ID required in X-User-ID header"}), 400
+    
+    try:
+        sender_id = int(sender_id_header)
+    except ValueError:
+        return jsonify({"error": "Invalid sender ID"}), 400
+    
+    try:
+        receiver_id = int(data.get("receiver_id"))
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid receiver_id"}), 400
+    
+    text = data.get("text", "").strip()
+    if not text:
+        return jsonify({"error": "Message text cannot be empty"}), 400
+    
+    try:
+        message = db_module.create_message(sender_id, receiver_id, text)
+        return jsonify({
+            "id": message['id'],
+            "senderId": message['sender_id'],
+            "receiverId": message['receiver_id'],
+            "text": message['text'],
+            "createdAt": message['created_at']
+        }), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/messages/<int:user_id>", methods=["GET"])
+def get_messages_with_user(user_id):
+    """
+    获取与某个用户的所有消息
+    需要在 X-User-ID header 中提供当前用户ID
+    """
+    current_user_id_header = request.headers.get("X-User-ID")
+    if not current_user_id_header:
+        return jsonify({"error": "Current user ID required in X-User-ID header"}), 400
+    
+    try:
+        current_user_id = int(current_user_id_header)
+    except ValueError:
+        return jsonify({"error": "Invalid current user ID"}), 400
+    
+    try:
+        messages = db_module.get_messages_between(current_user_id, user_id)
+        return jsonify([{
+            "id": m['id'],
+            "senderId": m['sender_id'],
+            "receiverId": m['receiver_id'],
+            "text": m['text'],
+            "createdAt": m['created_at']
+        } for m in messages])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/messages/list", methods=["GET"])
+def get_message_list():
+    """
+    获取当前用户的消息列表（最新对话列表）
+    需要在 X-User-ID header 中提供当前用户ID
+    """
+    current_user_id_header = request.headers.get("X-User-ID")
+    if not current_user_id_header:
+        return jsonify({"error": "Current user ID required in X-User-ID header"}), 400
+    
+    try:
+        current_user_id = int(current_user_id_header)
+    except ValueError:
+        return jsonify({"error": "Invalid current user ID"}), 400
+    
+    try:
+        # 获取所有对话者的ID
+        conn = db_module._get_conn()
+        rows = conn.execute(
+            "SELECT DISTINCT CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END as other_id FROM messages WHERE sender_id = ? OR receiver_id = ?",
+            (current_user_id, current_user_id, current_user_id)
+        ).fetchall()
+        conn.close()
+        
+        result = []
+        for row in rows:
+            other_user_id = row['other_id']
+            user = db_module.get_user(other_user_id)
+            if user:
+                # 移除敏感信息
+                user.pop("pswd_hash", None)
+                user.pop("confirmation_token", None)
+                user["avatar"] = f"https://picsum.photos/seed/{user['id']}/150/150"
+                result.append(user)
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     try:
         # 启动时自动初始化数据库表结构
