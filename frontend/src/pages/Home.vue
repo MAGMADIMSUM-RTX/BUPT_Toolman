@@ -2,12 +2,16 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { store } from '../store'
-import { Search, Plus, X, MessageCircle } from 'lucide-vue-next'
+import { Search, Plus, X, MessageCircle, Image as ImageIcon } from 'lucide-vue-next'
 
 const router = useRouter()
 const searchQuery = ref('')
 const isModalOpen = ref(false)
 const selectedItem = ref(null)
+
+// 图片相关状态
+const imageFiles = ref([]) // 改为数组
+const previewUrls = ref([])
 
 const form = ref({
   title: '',
@@ -26,26 +30,50 @@ const filteredItems = computed(() => {
   )
 })
 
-// --- toolman/fronted/src/pages/Home.vue ---
+// 处理文件选择 (支持多选)
+const handleFileChange = (event) => {
+  const files = Array.from(event.target.files)
+  
+  // 检查数量限制
+  if (imageFiles.value.length + files.length > 9) {
+    alert('最多只能上传 9 张图片')
+    return
+  }
+
+  files.forEach(file => {
+    imageFiles.value.push(file)
+    previewUrls.value.push(URL.createObjectURL(file))
+  })
+}
+
+// 移除单张图片
+const removeImage = (index) => {
+    imageFiles.value.splice(index, 1)
+    URL.revokeObjectURL(previewUrls.value[index]) // 释放内存
+    previewUrls.value.splice(index, 1)
+}
 
 const handlePost = async () => {
   if (!form.value.title || !form.value.price) return
   
-  // 调用 store 的方法，并获取返回结果
   const result = await store.postItem({
     title: form.value.title,
     price: Number(form.value.price),
     category: form.value.category,
-    description: form.value.description
+    description: form.value.description,
+    imageFiles: imageFiles.value // 传递文件数组
   })
 
   if (result.success) {
-    // 成功逻辑
     isModalOpen.value = false
+    // 重置表单
     form.value = { title: '', price: '', category: '生活用品', description: '' }
-    alert('发布成功！') // 或者你可以用个更好看的 toast
+    imageFiles.value = []
+    previewUrls.value = []
+    if (result.message) {
+      alert(result.message) 
+    }
   } else {
-    // 失败逻辑：显示真正的错误原因
     alert('发布失败：' + result.message)
   }
 }
@@ -97,6 +125,7 @@ const contactSeller = () => {
         <div class="img-wrapper">
           <img :src="item.images[0]" class="goods-img" />
           <div v-if="item.status === '已售'" class="sold-overlay">已售</div>
+          <div v-if="item.images.length > 1" class="multi-tag">{{ item.images.length }}图</div>
         </div>
         <div class="card-body">
           <h3 class="goods-title">{{ item.title }}</h3>
@@ -121,6 +150,37 @@ const contactSeller = () => {
               <label>商品名称 <span class="required">*</span></label>
               <input v-model="form.title" placeholder="例如：95新 iPad Air 5" />
             </div>
+            
+            <div class="form-group">
+              <label>实拍图片 (已选 {{ imageFiles.length }}/9)</label>
+              
+              <div class="preview-grid" v-if="previewUrls.length > 0">
+                  <div v-for="(url, index) in previewUrls" :key="index" class="preview-item">
+                      <img :src="url" />
+                      <button class="remove-img-btn" @click.stop="removeImage(index)">×</button>
+                  </div>
+                  <div v-if="previewUrls.length < 9" class="add-more-btn" @click="$refs.fileInput.click()">
+                      <Plus size="20" />
+                  </div>
+              </div>
+
+              <div v-else class="upload-box" @click="$refs.fileInput.click()">
+                <div class="upload-placeholder">
+                  <ImageIcon size="32" class="upload-icon"/>
+                  <span>点击上传图片 (最多9张)</span>
+                </div>
+              </div>
+              
+              <input 
+                  type="file" 
+                  ref="fileInput"
+                  accept="image/*" 
+                  multiple 
+                  @change="handleFileChange" 
+                  class="hidden-input"
+              />
+            </div>
+
             <div class="form-row">
               <div class="form-group">
                 <label>价格 (¥) <span class="required">*</span></label>
@@ -161,9 +221,10 @@ const contactSeller = () => {
           </div>
           
           <div class="modal-body no-padding">
-            <div class="detail-img-box">
-              <img :src="selectedItem.images[0]" class="detail-img" />
+            <div class="detail-gallery">
+              <img v-for="(img, idx) in selectedItem.images" :key="idx" :src="img" class="detail-img" />
             </div>
+
             <div class="detail-content">
               <div class="detail-title-row">
                 <h2 class="detail-title">{{ selectedItem.title }}</h2>
@@ -195,7 +256,6 @@ const contactSeller = () => {
 </template>
 
 <style scoped>
-/* 保持 static 的样式 */
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; flex-wrap: wrap; gap: 16px; position: relative; z-index: 20; }
 .page-title { font-size: 2rem; font-weight: 800; color: var(--text-main); letter-spacing: -0.5px; }
 .header-right { display: flex; gap: 16px; align-items: center; }
@@ -209,6 +269,7 @@ const contactSeller = () => {
 .img-wrapper { height: 200px; position: relative; background: #eee; }
 .goods-img { width: 100%; height: 100%; object-fit: cover; }
 .sold-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.6); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: bold; letter-spacing: 2px; backdrop-filter: blur(2px); }
+.multi-tag { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.6); color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; }
 .card-body { padding: 20px; }
 .goods-title { font-weight: 700; margin-bottom: 8px; font-size: 1.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main); }
 .goods-desc { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 16px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; height: 2.8em; line-height: 1.4; }
@@ -229,10 +290,13 @@ const contactSeller = () => {
 .form-row .form-group { flex: 1; }
 .label-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .modal-footer { padding: 20px 28px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 16px; background: var(--bg-body); }
-.cancel-btn { background: transparent; padding: 0.8rem 1.6rem; font-weight: 600; color: var(--text-secondary); border-radius: 12px; transition: 0.2s; }
+.cancel-btn { background: transparent; padding: 0.8rem 1.6rem; font-weight: 600; color: var(--text-secondary); border-radius: 12px; }
 .cancel-btn:hover { color: var(--text-main); background: var(--border); }
-.detail-img-box { width: 100%; height: 250px; background: #eee; }
-.detail-img { width: 100%; height: 100%; object-fit: cover; }
+
+/* 详情页图片列表 */
+.detail-gallery { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 10px; padding: 10px; background: #eee; }
+.detail-img { width: 100%; height: 300px; object-fit: contain; scroll-snap-align: center; flex-shrink: 0; background: #fff; }
+
 .detail-content { padding: 28px; display: flex; flex-direction: column; gap: 16px; }
 .detail-title-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .detail-title { font-size: 1.5rem; font-weight: 800; color: var(--text-main); line-height: 1.3; }
@@ -244,4 +308,27 @@ const contactSeller = () => {
 .detail-desc-box label { display: block; font-size: 0.9rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 8px; }
 .detail-text { font-size: 1rem; color: var(--text-main); line-height: 1.7; white-space: pre-wrap; }
 .full-width { width: 100%; }
+
+/* --- 上传图片样式 --- */
+.upload-box {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  min-height: 120px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  background-color: var(--bg-input);
+  transition: all 0.2s;
+}
+.upload-box:hover { border-color: var(--primary); background-color: var(--bg-card); }
+.hidden-input { display: none; }
+.upload-placeholder { display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--text-secondary); }
+
+.preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 10px; margin-top: 10px; }
+.preview-item { position: relative; width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+.preview-item img { width: 100%; height: 100%; object-fit: cover; }
+.remove-img-btn { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.5); color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; justify-content: center; align-items: center; cursor: pointer; border: none; font-size: 14px; }
+.add-more-btn { border: 2px dashed var(--border); border-radius: 8px; display: flex; justify-content: center; align-items: center; cursor: pointer; color: var(--text-secondary); aspect-ratio: 1; }
+.add-more-btn:hover { border-color: var(--primary); color: var(--primary); }
 </style>
