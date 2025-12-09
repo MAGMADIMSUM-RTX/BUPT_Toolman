@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import db as db_module
 import bcrypt
@@ -11,6 +11,10 @@ from werkzeug.utils import secure_filename
 app = Flask(__name__)
 # 允许跨域请求
 CORS(app)
+
+# 配置静态文件服务
+app.static_folder = os.path.join(os.path.dirname(__file__), '..', 'media')
+app.static_url_path = '/media'
 
 APP_NAME = "泥邮工具人"
 BACKEND_URL = "http://localhost:5000"
@@ -501,6 +505,42 @@ def upload_media():
         return jsonify({"error": "Invalid upload type"}), 400
 
     return jsonify({"message": "Upload successful"}), 201
+
+@app.route("/user/<int:user_id>/avatar")
+def get_user_avatar(user_id):
+    """获取用户头像"""
+    user_dir = os.path.join(UPLOAD_FOLDER, "user")
+    for ext in ALLOWED_EXTENSIONS:
+        path = os.path.join(user_dir, f"avatar_{user_id}.{ext}")
+        if os.path.exists(path):
+            return jsonify({"avatar_url": f"/media/user/avatar_{user_id}.{ext}"})
+    return jsonify({"error": "Avatar not found"}), 404
+
+@app.route('/media/<path:filename>')
+def serve_media(filename):
+    """Serve media files"""
+    return send_from_directory(app.static_folder, filename)
+
+@app.route("/good/<int:good_id>/images")
+def get_good_images(good_id):
+    """获取商品图像，支持选择第一个或全部"""
+    good_dir = os.path.join(UPLOAD_FOLDER, f"good_{good_id}")
+    if not os.path.exists(good_dir):
+        return jsonify({"error": "No images found"}), 404
+    
+    first = request.args.get("first", "false").lower() == "true"
+    images = []
+    for file in os.listdir(good_dir):
+        if file.startswith(f"good_{good_id}_") and file.split('.')[-1].lower() in ALLOWED_EXTENSIONS:
+            images.append(f"/media/good_{good_id}/{file}")
+    
+    if not images:
+        return jsonify({"error": "No images found"}), 404
+    
+    if first:
+        return jsonify({"image_url": images[0]})
+    else:
+        return jsonify({"image_urls": images})
 
 
 if __name__ == "__main__":

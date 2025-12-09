@@ -10,6 +10,7 @@ const Login = () => import('../pages/Login.vue')
 const Register = () => import('../pages/Register.vue')
 const Confirm = () => import('../pages/Confirm.vue')
 const Preferences = () => import('../pages/Preferences.vue')
+const Test = () => import('../pages/Test.vue')
 
 const routes = [
   { path: '/', name: 'Home', component: Home },
@@ -20,6 +21,7 @@ const routes = [
   { path: '/register', name: 'Register', component: Register },
   { path: '/confirm', name: 'Confirm', component: Confirm },
   { path: '/preferences', name: 'Preferences', component: Preferences },
+  { path: '/test', name: 'Test', component: Test },
 ]
 
 const router = createRouter({
