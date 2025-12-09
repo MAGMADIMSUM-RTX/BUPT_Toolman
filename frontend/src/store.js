@@ -1,19 +1,19 @@
 import { reactive } from 'vue'
 import { API_BASE_URL } from './config.js'
 
-// 仅保留 任务(Tasks) 和 消息(Chat) 的 Mock 数据
-// 因为后端暂时还没有这两个模块的接口
+// 仅保留 任务(Tasks) 的 Mock 数据
+// 消息数据从后端实时加载
 const MOCK_TASKS = [
   { id: 't1', title: '北门取快递', status: '待接单', bounty: 5, location: '北门 -> A栋', notes: '文件袋', createdAt: Date.now() },
 ]
-const MOCK_MESSAGES = []
 
 export const store = reactive({
   state: {
     currentUser: JSON.parse(localStorage.getItem('user')) || null,
     items: [],
     tasks: [...MOCK_TASKS],
-    messages: [...MOCK_MESSAGES]
+    messages: [],
+    users: {} // 缓存用户信息
   },
 
   // --- 真实登录逻辑 ---
@@ -40,6 +40,8 @@ export const store = reactive({
 
   logout() {
     this.state.currentUser = null
+    this.state.messages = []
+    this.state.users = {}
     localStorage.removeItem('user')
   },
 
@@ -66,7 +68,6 @@ export const store = reactive({
   },
 
   // --- 发布商品 (真实 API) ---
-
   async postItem(itemData) {
     // 1. 检查是否登录
     if (!this.state.currentUser) {
@@ -103,5 +104,108 @@ export const store = reactive({
       console.error('发布商品失败:', error)
       return { success: false, message: '网络连接失败，请检查后端是否启动' }
     }
+  },
+
+  // --- 消息相关功能 (真实 API) ---
+  async sendMessage(receiverId, text) {
+    if (!this.state.currentUser) {
+      return { success: false, message: '请先登录' }
+    }
+
+    if (!text || !text.trim()) {
+      return { success: false, message: '消息不能为空' }
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': this.state.currentUser.id
+        },
+        body: JSON.stringify({ receiver_id: receiverId, text: text.trim() })
+      })
+
+      const data = await res.json()
+
+      if (res.ok) {
+        // 将消息添加到本地状态
+        this.state.messages.push(data)
+        return { success: true, message: data }
+      } else {
+        return { success: false, message: data.error || '发送失败' }
+      }
+    } catch (e) {
+      console.error('发送消息失败:', e)
+      return { success: false, message: '网络连接失败' }
+    }
+  },
+
+  async loadMessagesWithUser(userId) {
+    if (!this.state.currentUser) {
+      return { success: false, message: '请先登录' }
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/messages/${userId}`, {
+        method: 'GET',
+        headers: {
+          'X-User-ID': this.state.currentUser.id
+        }
+      })
+
+      if (res.ok) {
+        const messages = await res.json()
+        // 更新状态中的消息 (只保留与当前用户的对话)
+        this.state.messages = messages
+        return { success: true }
+      } else {
+        console.error('加载消息失败')
+        return { success: false, message: '加载消息失败' }
+      }
+    } catch (e) {
+      console.error('加载消息出错:', e)
+      return { success: false, message: '网络连接失败' }
+    }
+  },
+
+  async loadChatUsers() {
+    if (!this.state.currentUser) {
+      return { success: false, message: '请先登录' }
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/messages/list`, {
+        method: 'GET',
+        headers: {
+          'X-User-ID': this.state.currentUser.id
+        }
+      })
+
+      if (res.ok) {
+        const users = await res.json()
+        // 缓存这些用户信息
+        users.forEach(u => {
+          this.state.users[u.id] = u
+        })
+        return { success: true, users }
+      } else {
+        return { success: false, message: '加载对话列表失败' }
+      }
+    } catch (e) {
+      console.error('加载对话列表出错:', e)
+      return { success: false, message: '网络连接失败' }
+    }
+  },
+
+  getUser(userId) {
+    // 优先从缓存中获取，否则返回基本信息（通常由 loadChatUsers 填充）
+    return this.state.users[userId] || null
+  },
+
+  setActiveChatUser(user) {
+    // 设置激活的聊天用户（从商品详情页面跳转过来时使用）
+    this.state.users[user.id] = user
+    return user
   },
 })

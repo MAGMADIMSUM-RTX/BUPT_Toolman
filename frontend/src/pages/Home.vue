@@ -55,7 +55,20 @@ const openDetail = (item) => {
 }
 
 const contactSeller = () => {
-  router.push('/chat')
+  if (!store.state.currentUser) {
+    alert('请先登录')
+    router.push('/login')
+    return
+  }
+  if (selectedItem.value && selectedItem.value.sellerId) {
+    // 存储卖家信息到 store
+    store.setActiveChatUser({
+      id: selectedItem.value.sellerId,
+      name: `商家`,
+      avatar: `https://picsum.photos/seed/${selectedItem.value.sellerId}/150/150`
+    })
+    router.push('/chat')
+  }
 }
 </script>
 
