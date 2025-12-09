@@ -51,6 +51,7 @@ def init_db() -> None:
 		CREATE TABLE IF NOT EXISTS goods (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			seller_id INTEGER NOT NULL,
+			type BOOLEAN DEFAULT FALSE,
 			name TEXT NOT NULL,
 			num INTEGER NOT NULL,
 			sold_num INTEGER NOT NULL,
@@ -116,9 +117,10 @@ def get_user(user_id: int) -> Optional[Dict]:
 	return data
 
 
-def get_goods_by_seller(seller_id: int) -> List[Dict]:
+def get_goods_by_seller(seller_id: int, is_good: bool) -> List[Dict]:
 	conn = _get_conn()
-	rows = conn.execute("SELECT * FROM goods WHERE seller_id = ?", (seller_id,)).fetchall()
+	type_filter = 0 if is_good else 1
+	rows = conn.execute("SELECT * FROM goods WHERE seller_id = ? AND type = ?", (seller_id, type_filter)).fetchall()
 	conn.close()
 	results = []
 	for row in rows:
@@ -144,7 +146,7 @@ def create_user(name: str, email: Optional[str] = None, pswd_hash: Optional[str]
 	return _row_to_dict(row)
 
 
-def create_good(name: str, seller_id: int,  num: int, value: float, description: str, status: str = "available", labels: Optional[List[int]] = None) -> Optional[Dict]:
+def create_good(name: str, seller_id: int,  num: int, value: float, description: str, status: str = "available", labels: Optional[List[int]] = None, type: bool = False) -> Optional[Dict]:
 	"""Create a good. `labels` should be a list of ints (category/tag ids).
 	Returns the created row as a dict.
 	"""
@@ -152,8 +154,8 @@ def create_good(name: str, seller_id: int,  num: int, value: float, description:
 	cur = conn.cursor()
 	labels_json = _serialize_labels(labels)
 	cur.execute(
-		"INSERT INTO goods (seller_id, name, num, sold_num, labels, value, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		(seller_id, name,  num, 0, labels_json, value, description, status),
+		"INSERT INTO goods (seller_id, name, num, sold_num, labels, value, description, status, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		(seller_id, name, num, 0, labels_json, value, description, status, type),
 	)
 	conn.commit()
 	good_id = cur.lastrowid
@@ -178,10 +180,11 @@ def get_good(id: int) -> Optional[Dict]:
 	return data
 
 
-def get_random_goods(num: int) -> List[Dict]:
+def get_random_goods(num: int, is_task: bool) -> List[Dict]:
 	conn = _get_conn()
+	type_filter = 1 if is_task else 0
 	rows = conn.execute(
-		"SELECT * FROM goods WHERE status = 'available' ORDER BY RANDOM() LIMIT ?", (num,)
+		"SELECT * FROM goods WHERE status = 'available' AND type = ? ORDER BY RANDOM() LIMIT ?", (type_filter, num)
 	).fetchall()
 	conn.close()
 	results = []

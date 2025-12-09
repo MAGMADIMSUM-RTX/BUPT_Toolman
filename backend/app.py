@@ -215,7 +215,7 @@ def get_user_info(user_id):
 @app.route("/user/<int:user_id>/goods")
 def get_user_goods(user_id):
     """获取用户发布的商品"""
-    goods = db_module.get_goods_by_seller(user_id)
+    goods = db_module.get_goods_by_seller(user_id, True)
     return jsonify(goods)
 
 
@@ -286,6 +286,7 @@ def create_good():
         seller_id = int(data.get("seller_id"))
         num = int(data.get("num", 1))
         value = float(data.get("value"))
+        is_task = bool(data.get("is_task"))
         
         # 处理 labels
         labels_raw = data.get("labels")
@@ -306,7 +307,7 @@ def create_good():
 
     try:
         # 2. 写入数据库
-        good = db_module.create_good(name, seller_id, num, value, description, labels=labels)
+        good = db_module.create_good(name, seller_id, num, value, description, labels=labels, type=is_task)
         
         # 3. 异步发送通知邮件给感兴趣的用户
         if labels:
@@ -348,7 +349,8 @@ def get_random_goods():
     """获取随机商品"""
     try:
         num = request.args.get("num", default=10, type=int)
-        goods = db_module.get_random_goods(num)
+        is_task = request.args.get("is_task", "false").lower() == "true"
+        goods = db_module.get_random_goods(num, is_task)
         return jsonify(goods)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
