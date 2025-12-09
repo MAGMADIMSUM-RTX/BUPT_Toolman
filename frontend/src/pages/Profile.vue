@@ -2,11 +2,12 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { store } from '../store'
-import { LogOut, Star, Wallet, MapPin, Clock } from 'lucide-vue-next'
+import { LogOut, Star, Wallet, MapPin, Clock, Camera } from 'lucide-vue-next'
 
 const router = useRouter()
 const activeTab = ref('items')
 const user = computed(() => store.state.currentUser)
+const fileInput = ref(null)
 
 const myItems = computed(() => {
   if (!user.value) return []
@@ -19,6 +20,30 @@ const myTasks = computed(() => {
 })
 
 const handleLogout = () => { store.logout(); router.push('/login') }
+
+// 触发头像上传
+const triggerUpload = () => {
+  fileInput.value.click()
+}
+
+// 处理头像文件选择
+const handleAvatarChange = async (e) => {
+  const file = e.target.files[0]
+  if (!file) return
+  
+  // 简单的前端校验
+  if (!['image/jpeg', 'image/png', 'image/gif'].includes(file.type)) {
+    alert('请上传 JPG/PNG/GIF 格式的图片')
+    return
+  }
+
+  const result = await store.uploadAvatar(file)
+  if (result.success) {
+    alert('头像更新成功')
+  } else {
+    alert(result.message)
+  }
+}
 
 const statusColor = (status) => {
   switch(status) {
@@ -34,7 +59,20 @@ const statusColor = (status) => {
   <div v-if="user">
     <div class="profile-header">
       <div class="user-info">
-        <img :src="user.avatar" class="profile-avatar" />
+        <div class="avatar-wrapper" @click="triggerUpload">
+            <img :src="user.avatar" class="profile-avatar" />
+            <div class="avatar-overlay">
+                <Camera size="24" color="white"/>
+            </div>
+            <input 
+                type="file" 
+                ref="fileInput" 
+                hidden 
+                accept="image/*" 
+                @change="handleAvatarChange"
+            />
+        </div>
+
         <div>
           <h1 class="profile-name">{{ user.name }}</h1>
           <p class="profile-id">Email: {{ user.email }}</p>
@@ -102,7 +140,18 @@ const statusColor = (status) => {
 <style scoped>
 .profile-header { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 30px; display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; }
 .user-info { display: flex; gap: 24px; align-items: center; }
-.profile-avatar { width: 80px; height: 80px; border-radius: 50%; border: 4px solid var(--bg-body); }
+
+/* 头像交互样式 */
+.avatar-wrapper { position: relative; cursor: pointer; width: 80px; height: 80px; border-radius: 50%; overflow: hidden; border: 4px solid var(--bg-body); }
+.profile-avatar { width: 100%; height: 100%; object-fit: cover; }
+.avatar-overlay {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0.4);
+    display: flex; justify-content: center; align-items: center;
+    opacity: 0; transition: opacity 0.2s;
+}
+.avatar-wrapper:hover .avatar-overlay { opacity: 1; }
+
 .profile-name { font-size: 1.5rem; font-weight: 800; color: var(--text-main); margin-bottom: 4px; }
 .profile-id { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 12px; }
 .badges { display: flex; gap: 10px; }
