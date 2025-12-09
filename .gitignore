@@ -3,3 +3,4 @@ media/
 */media/
 *.jpg
 backend/__pycache__/
+*.db
