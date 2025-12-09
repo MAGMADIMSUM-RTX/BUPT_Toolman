@@ -3,4 +3,3 @@ media/
 */media/
 *.jpg
 backend/__pycache__/
-backend/__pycache___old/
