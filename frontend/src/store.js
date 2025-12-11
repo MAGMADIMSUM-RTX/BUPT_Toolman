@@ -18,15 +18,49 @@ export const store = reactive({
   // --- 登录逻辑 ---
   async login(username, password) {
     try {
+      const consent = (() => { try { return localStorage.getItem('cookie_consent') } catch (e) { return null } })()
+
       const res = await fetch(`${API_BASE_URL}/user/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Cookie-Consent': consent || '' },
+        credentials: 'include',  // 使得跨域请求能带上cookie
         body: JSON.stringify({ username, password })
       })
       const data = await res.json()
       
       if (res.ok) {
+        // 如果后端返回 token（cookie 被拒绝情形），保存到 sessionStorage
+        if (data.token) {
+          try { sessionStorage.setItem('auth_token', data.token) } catch (e) {}
+        }
         this.updateUser(data.user)
+
+        // 如果用户同意了 Cookie，但浏览器可能在跨站环境拒绝了 Cookie（SameSite/secure策略）
+        // 我们做一次受保护接口调用测试，确认是否已用 Cookie 认证成功；如果失败则自动回退为 token 登录。
+        try {
+          const consent = (() => { try { return localStorage.getItem('cookie_consent') } catch (e) { return null } })()
+          if (consent === 'accepted') {
+            const testRes = await fetch(`${API_BASE_URL}/messages/list`, { method: 'GET', credentials: 'include' })
+            if (testRes.status === 401) {
+              // Cookie 未被浏览器接受，自动重试请求 token 回退
+              const retry = await fetch(`${API_BASE_URL}/user/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Cookie-Consent': 'rejected' },
+                body: JSON.stringify({ username, password })
+              })
+              const retryData = await retry.json()
+              if (retry.ok && retryData.token) {
+                try { sessionStorage.setItem('auth_token', retryData.token) } catch (e) {}
+                // 更新用户信息（后端返回的 user）
+                if (retryData.user) this.updateUser(retryData.user)
+                return { success: true, fallback: 'token', message: '浏览器拒绝了 Cookie，已使用 token 回退' }
+              }
+            }
+          }
+        } catch (e) {
+          // 忽略检测错误
+        }
+
         return { success: true }
       } else {
         return { success: false, message: data.error || '登录失败' }
@@ -36,11 +70,23 @@ export const store = reactive({
     }
   },
 
-  logout() {
+  async logout() {
+    try {
+      await fetch(`${API_BASE_URL}/user/logout`, {
+        method: 'POST',
+        headers: this.authHeaders(),
+        credentials: 'include'  // 带上cookie发送登出请求
+      })
+    } catch (e) {
+      console.error('登出请求失败:', e)
+    }
+    
+    // 清除本地状态
     this.state.currentUser = null
     this.state.messages = []
     this.state.users = {}
     localStorage.removeItem('user')
+    try { sessionStorage.removeItem('auth_token') } catch (e) {}
   },
 
   // 辅助：更新本地用户状态并持久化
@@ -55,6 +101,15 @@ export const store = reactive({
     }
     this.state.currentUser = userData
     localStorage.setItem('user', JSON.stringify(userData))
+  },
+
+  // 返回用于认证的 headers（支持 bearer token fallback）
+  authHeaders() {
+    try {
+      const token = sessionStorage.getItem('auth_token')
+      if (token) return { 'Authorization': `Bearer ${token}` }
+    } catch (e) {}
+    return {}
   },
 
   // --- 获取商品 (适配后端，额外获取图片) ---
@@ -123,9 +178,11 @@ export const store = reactive({
     }
 
     try {
+      const headers = Object.assign({ 'Content-Type': 'application/json' }, this.authHeaders())
       const res = await fetch(`${API_BASE_URL}/goods`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
+        credentials: 'include',
         body: JSON.stringify(payload)
       })
       
@@ -148,6 +205,8 @@ export const store = reactive({
 
         const uploadRes = await fetch(`${API_BASE_URL}/upload`, {
           method: 'POST',
+          headers: this.authHeaders(),
+          credentials: 'include',
           body: formData
         })
         
@@ -178,6 +237,8 @@ export const store = reactive({
     try {
       const res = await fetch(`${API_BASE_URL}/upload`, {
         method: 'POST',
+        headers: this.authHeaders(),
+        credentials: 'include',
         body: formData
       })
       
@@ -198,14 +259,20 @@ export const store = reactive({
   async refreshUserProfile() {
     if (!this.state.currentUser) return
     try {
-        const res = await fetch(`${API_BASE_URL}/user/${this.state.currentUser.id}`)
+        const res = await fetch(`${API_BASE_URL}/user/${this.state.currentUser.id}`, {
+          headers: this.authHeaders(),
+          credentials: 'include'
+        })
         if (res.ok) {
             const userData = await res.json()
             // 补充头像逻辑：如果是相对路径，且后端get_user_info返回的avatar是接口生成的
             // 后端 app.py 的 get_user_info 现在返回的是picsum默认图。
             // 我们需要手动请求一下 /user/<id>/avatar 接口确认是否有真实头像
             
-            const avatarRes = await fetch(`${API_BASE_URL}/user/${userData.id}/avatar`)
+            const avatarRes = await fetch(`${API_BASE_URL}/user/${userData.id}/avatar`, {
+              headers: this.authHeaders(),
+              credentials: 'include'
+            })
             if (avatarRes.ok) {
                 const avatarData = await avatarRes.json()
                 if (avatarData.avatar_url) {
@@ -234,12 +301,11 @@ export const store = reactive({
     }
 
     try {
+      const headers = Object.assign({ 'Content-Type': 'application/json' }, this.authHeaders())
       const res = await fetch(`${API_BASE_URL}/messages`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': this.state.currentUser.id
-        },
+        headers,
+        credentials: 'include',
         body: JSON.stringify({ receiver_id: receiverId, text: text.trim() })
       })
 
@@ -266,9 +332,8 @@ export const store = reactive({
     try {
       const res = await fetch(`${API_BASE_URL}/messages/${userId}`, {
         method: 'GET',
-        headers: {
-          'X-User-ID': this.state.currentUser.id
-        }
+        headers: this.authHeaders(),
+        credentials: 'include'
       })
 
       if (res.ok) {
@@ -294,9 +359,8 @@ export const store = reactive({
     try {
       const res = await fetch(`${API_BASE_URL}/messages/list`, {
         method: 'GET',
-        headers: {
-          'X-User-ID': this.state.currentUser.id
-        }
+        headers: this.authHeaders(),
+        credentials: 'include'
       })
 
       if (res.ok) {

@@ -83,6 +83,14 @@ def init_db() -> None:
 			FOREIGN KEY(sender_id) REFERENCES users(id),
 			FOREIGN KEY(receiver_id) REFERENCES users(id)
 		);
+
+		CREATE TABLE IF NOT EXISTS sessions (
+			session_token TEXT PRIMARY KEY,
+			user_id INTEGER NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			expires_at TIMESTAMP NOT NULL,
+			FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+		);
 		"""
 	)
 	conn.commit()
@@ -390,3 +398,86 @@ def get_latest_messages(user_id: int) -> List[Dict]:
 	).fetchall()
 	conn.close()
 	return [_row_to_dict(row) for row in rows if row is not None]
+
+
+def create_session(user_id: int, expires_hours: int = 24) -> str:
+	"""创建session，返回session_token"""
+	import secrets
+	from datetime import datetime, timedelta
+	
+	session_token = secrets.token_urlsafe(32)
+	expires_at = (datetime.now() + timedelta(hours=expires_hours)).isoformat()
+	
+	conn = _get_conn()
+	cur = conn.cursor()
+	cur.execute(
+		"INSERT INTO sessions (session_token, user_id, expires_at) VALUES (?, ?, ?)",
+		(session_token, user_id, expires_at)
+	)
+	conn.commit()
+	conn.close()
+	return session_token
+
+
+def get_user_by_session(session_token: str) -> Optional[Dict]:
+	"""通过session_token获取用户，检查是否过期"""
+	from datetime import datetime
+	
+	conn = _get_conn()
+	row = conn.execute(
+		"SELECT * FROM sessions WHERE session_token = ?",
+		(session_token,)
+	).fetchone()
+	
+	if row is None:
+		conn.close()
+		return None
+	
+	session_data = _row_to_dict(row)
+	
+	# 检查是否过期
+	expires_at = datetime.fromisoformat(session_data['expires_at'])
+	if datetime.now() > expires_at:
+		# 删除过期session
+		cur = conn.cursor()
+		cur.execute("DELETE FROM sessions WHERE session_token = ?", (session_token,))
+		conn.commit()
+		conn.close()
+		return None
+	
+	# 获取用户信息
+	user_row = conn.execute(
+		"SELECT * FROM users WHERE id = ?",
+		(session_data['user_id'],)
+	).fetchone()
+	conn.close()
+	
+	user_data = _row_to_dict(user_row)
+	if user_data is not None and "prefer" in user_data:
+		user_data["prefer"] = _deserialize_labels(user_data.get("prefer"))
+	return user_data
+
+
+def delete_session(session_token: str) -> bool:
+	"""删除session（用户登出）"""
+	conn = _get_conn()
+	cur = conn.cursor()
+	cur.execute("DELETE FROM sessions WHERE session_token = ?", (session_token,))
+	conn.commit()
+	deleted = cur.rowcount
+	conn.close()
+	return deleted > 0
+
+
+def cleanup_expired_sessions() -> int:
+	"""清理所有过期的session，返回删除的数量"""
+	from datetime import datetime
+	
+	conn = _get_conn()
+	cur = conn.cursor()
+	now = datetime.now().isoformat()
+	cur.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
+	conn.commit()
+	deleted = cur.rowcount
+	conn.close()
+	return deleted

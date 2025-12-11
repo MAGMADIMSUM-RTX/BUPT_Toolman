@@ -10,7 +10,7 @@ from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 # 允许跨域请求
-CORS(app)
+# CORS will be configured after FRONTEND_URL is defined so we can restrict allowed origins
 
 # 配置静态文件服务
 app.static_folder = os.path.join(os.path.dirname(__file__), '..', 'media')
@@ -25,9 +25,36 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov', 'avi'}
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
+# Configure CORS to allow credentials and only the frontend origins
+try:
+    CORS(app, supports_credentials=True, resources={r"/*": {"origins": [FRONTEND_URL, "http://127.0.0.1:5173"]}})
+except Exception:
+    # fallback to permissive CORS if something unexpected happens
+    CORS(app)
+
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def get_current_user_from_request():
+    """从请求中获取当前用户，优先检查 Authorization: Bearer <token>，其次检查 cookie 中的 session_token。返回用户 dict 或 None。"""
+    # 1. Authorization header
+    auth = request.headers.get('Authorization')
+    if auth and auth.startswith('Bearer '):
+        token = auth.split(' ', 1)[1].strip()
+        if token:
+            user = db_module.get_user_by_session(token)
+            if user:
+                return user
+
+    # 2. Cookie
+    session_token = request.cookies.get('session_token')
+    if session_token:
+        user = db_module.get_user_by_session(session_token)
+        if user:
+            return user
+
+    return None
 
 @app.route("/")
 def hello():
@@ -106,7 +133,7 @@ def create_user():
 def login():
     """
     用户登录接口 (新增)
-    验证账号密码，成功则返回用户信息
+    验证账号密码，成功则创建session并设置cookie
     """
     data = request.get_json(silent=True) or request.form
     if not data:
@@ -152,8 +179,10 @@ def login():
                 if not verified:
                     return jsonify({"error": "请先验证邮箱后再登录"}), 403
 
-                # 登录成功，返回数据
-                return jsonify({
+                # 创建session
+                session_token = db_module.create_session(user['id'], expires_hours=24)
+
+                payload = {
                     "message": "Login successful",
                     "user": {
                         "id": user['id'],
@@ -163,8 +192,24 @@ def login():
                         "balance": 0.00,
                         "creditScore": 100
                     }
-                })
-        
+                }
+
+                consent = request.headers.get('X-Cookie-Consent', '')
+                if consent.lower() == 'rejected':
+                    payload['token'] = session_token
+                    return jsonify(payload), 200
+                else:
+                    response = jsonify(payload)
+                    response.set_cookie(
+                        'session_token',
+                        session_token,
+                        httponly=True,
+                        secure=True,  # 在生产环境中应设置为True（需要HTTPS）
+                        samesite='None',
+                        max_age=86400  # 24小时
+                    )
+                    return response, 200
+
         return jsonify({"error": "账号或密码错误"}), 401
     except Exception as e:
         print(f"Login error: {e}")
@@ -175,6 +220,7 @@ def login():
 def confirm_user():
     """
     邮箱验证回调接口
+    验证邮箱后自动创建session并设置cookie
     """
     token = request.args.get("token")
     if not token:
@@ -189,9 +235,62 @@ def confirm_user():
     
     success = db_module.update_user_verified(user['id'], True)
     if success:
-        return jsonify({"message": "User verified successfully"}), 200
+        # 验证成功后自动创建session
+        session_token = db_module.create_session(user['id'], expires_hours=24)
+
+        payload = {
+            "message": "User verified successfully",
+            "user": {
+                "id": user['id'],
+                "name": user['name'],
+                "email": user['email'],
+                "avatar": f"https://picsum.photos/seed/{user['id']}/150/150",
+                "balance": 0.00,
+                "creditScore": 100
+            }
+        }
+
+        consent = request.headers.get('X-Cookie-Consent', '')
+        if consent.lower() == 'rejected':
+            payload['token'] = session_token
+            return jsonify(payload), 200
+        else:
+            response = jsonify(payload)
+            response.set_cookie(
+                'session_token',
+                session_token,
+                httponly=True,
+                secure=False,  # 在生产环境中应设置为True（需要HTTPS）
+                samesite='Lax',
+                max_age=86400  # 24小时
+            )
+            return response, 200
     else:
         return jsonify({"error": "Verification failed"}), 500
+
+@app.route("/user/logout", methods=["POST"])
+def logout():
+    """
+    用户登出接口
+    删除session，清除cookie
+    """
+    # 支持从 Authorization 或 Cookie 中删除 session
+    session_token = None
+    auth = request.headers.get('Authorization')
+    if auth and auth.startswith('Bearer '):
+        session_token = auth.split(' ', 1)[1].strip()
+
+    if not session_token:
+        session_token = request.cookies.get('session_token')
+
+    if session_token:
+        db_module.delete_session(session_token)
+    
+    response = jsonify({"message": "Logout successful"})
+    # 删除cookie
+    response.delete_cookie('session_token')
+    # 同时清理 Authorization token 由前端负责（前端会从 sessionStorage 删除）
+    return response, 200
     
 @app.route("/user/<int:user_id>")
 def get_user_info(user_id):
@@ -555,28 +654,22 @@ def send_message():
     if not data:
         return jsonify({"error": "No data provided"}), 400
     
-    # 实际项目中应从 JWT token 或 session 中获取发送者ID
-    # 这里为了演示，从 headers 中获取 X-User-ID
-    sender_id_header = request.headers.get("X-User-ID")
-    if not sender_id_header:
-        return jsonify({"error": "Sender ID required in X-User-ID header"}), 400
-    
-    try:
-        sender_id = int(sender_id_header)
-    except ValueError:
-        return jsonify({"error": "Invalid sender ID"}), 400
-    
+    # 从 session 或 Authorization 获取当前用户
+    current_user = get_current_user_from_request()
+    if not current_user:
+        return jsonify({"error": "未认证，请先登录"}), 401
+
     try:
         receiver_id = int(data.get("receiver_id"))
     except (ValueError, TypeError):
         return jsonify({"error": "Invalid receiver_id"}), 400
-    
+
     text = data.get("text", "").strip()
     if not text:
         return jsonify({"error": "Message text cannot be empty"}), 400
-    
+
     try:
-        message = db_module.create_message(sender_id, receiver_id, text)
+        message = db_module.create_message(current_user['id'], receiver_id, text)
         return jsonify({
             "id": message['id'],
             "senderId": message['sender_id'],
@@ -596,17 +689,12 @@ def get_messages_with_user(user_id):
     获取与某个用户的所有消息
     需要在 X-User-ID header 中提供当前用户ID
     """
-    current_user_id_header = request.headers.get("X-User-ID")
-    if not current_user_id_header:
-        return jsonify({"error": "Current user ID required in X-User-ID header"}), 400
-    
+    current_user = get_current_user_from_request()
+    if not current_user:
+        return jsonify({"error": "未认证，请先登录"}), 401
+
     try:
-        current_user_id = int(current_user_id_header)
-    except ValueError:
-        return jsonify({"error": "Invalid current user ID"}), 400
-    
-    try:
-        messages = db_module.get_messages_between(current_user_id, user_id)
+        messages = db_module.get_messages_between(current_user['id'], user_id)
         return jsonify([{
             "id": m['id'],
             "senderId": m['sender_id'],
@@ -624,21 +712,16 @@ def get_message_list():
     获取当前用户的消息列表（最新对话列表）
     需要在 X-User-ID header 中提供当前用户ID
     """
-    current_user_id_header = request.headers.get("X-User-ID")
-    if not current_user_id_header:
-        return jsonify({"error": "Current user ID required in X-User-ID header"}), 400
-    
-    try:
-        current_user_id = int(current_user_id_header)
-    except ValueError:
-        return jsonify({"error": "Invalid current user ID"}), 400
-    
+    current_user = get_current_user_from_request()
+    if not current_user:
+        return jsonify({"error": "未认证，请先登录"}), 401
+
     try:
         # 获取所有对话者的ID
         conn = db_module._get_conn()
         rows = conn.execute(
             "SELECT DISTINCT CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END as other_id FROM messages WHERE sender_id = ? OR receiver_id = ?",
-            (current_user_id, current_user_id, current_user_id)
+            (current_user['id'], current_user['id'], current_user['id'])
         ).fetchall()
         conn.close()
         

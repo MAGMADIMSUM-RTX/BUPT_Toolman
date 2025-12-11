@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 import { store } from './store' 
 import { ShoppingBag, ClipboardList, MessageSquare, User, Moon, Sun } from 'lucide-vue-next'
@@ -7,6 +7,28 @@ import { ShoppingBag, ClipboardList, MessageSquare, User, Moon, Sun } from 'luci
 const route = useRoute()
 const isDark = ref(false)
 const user = computed(() => store.state.currentUser)
+
+// Cookie consent: null = not chosen, 'accepted' | 'rejected'
+const cookieConsent = ref(null)
+
+onMounted(() => {
+  try {
+    const val = localStorage.getItem('cookie_consent')
+    cookieConsent.value = val === null ? null : val
+  } catch (e) {
+    cookieConsent.value = null
+  }
+})
+
+const acceptCookies = () => {
+  try { localStorage.setItem('cookie_consent', 'accepted') } catch (e) {}
+  cookieConsent.value = 'accepted'
+}
+
+const rejectCookies = () => {
+  try { localStorage.setItem('cookie_consent', 'rejected') } catch (e) {}
+  cookieConsent.value = 'rejected'
+}
 
 const toggleDark = () => {
   isDark.value = !isDark.value
@@ -50,6 +72,18 @@ const toggleDark = () => {
         <RouterView />
       </div>
     </main>
+    <!-- Cookie Consent 横幅 -->
+    <div v-if="cookieConsent === null" class="cookie-banner">
+      <div class="cookie-inner container">
+        <div class="cookie-text">
+          本站使用 Cookie 以提供登录会话和更好的使用体验。必要的会话 Cookie 会在登录时使用。你可以选择接受或拒绝非必要 Cookie。
+        </div>
+        <div class="cookie-actions">
+          <button class="btn btn-reject" @click="rejectCookies">拒绝</button>
+          <button class="btn btn-accept" @click="acceptCookies">接受</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -70,4 +104,13 @@ const toggleDark = () => {
 .avatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border); }
 .username { font-size: 0.9rem; font-weight: 600; color: var(--text-main); }
 .main-body { flex: 1; padding: 2rem 0; }
+
+/* Cookie banner */
+.cookie-banner { position: fixed; left: 0; right: 0; bottom: 20px; display: flex; justify-content: center; z-index: 70; }
+.cookie-inner { background: var(--bg-card); border: 1px solid var(--border); padding: 14px 18px; border-radius: 10px; display: flex; gap: 12px; align-items: center; box-shadow: 0 6px 24px rgba(0,0,0,0.08); max-width: 940px; }
+.cookie-text { color: var(--text-secondary); font-size: 0.95rem; line-height: 1.3; }
+.cookie-actions { display: flex; gap: 8px; }
+.btn { padding: 8px 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; }
+.btn-accept { background-color: var(--primary); color: white; }
+.btn-reject { background-color: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
 </style>
