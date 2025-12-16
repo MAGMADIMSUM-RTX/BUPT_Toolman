@@ -137,7 +137,8 @@ export const store = reactive({
           }
         }))
 
-        this.state.items = itemsWithImages
+        // 过滤掉已售（sold）的商品
+        this.state.items = itemsWithImages.filter(item => item.status === '在售')
       }
     } catch (e) {
       console.error(e)
@@ -356,5 +357,156 @@ export const store = reactive({
   getUser(userId) {
     // 优先从缓存中获取，否则返回基本信息（通常由 loadChatUsers 填充）
     return this.state.users[userId] || null
+  },
+
+  // --- 跑腿任务相关功能 ---
+  async fetchTasks() {
+    try {
+      const res = await fetch(`${API_BASE_URL}/goods/random?num=20&is_task=true`)
+      if (res.ok) {
+        const rawData = await res.json()
+        
+        // 并行请求所有任务的图片
+        const tasksWithImages = await Promise.all(rawData.map(async (task) => {
+          let imageUrls = []
+          try {
+            const imgRes = await fetch(`${API_BASE_URL}/good/${task.id}/images`)
+            if (imgRes.ok) {
+              const imgData = await imgRes.json()
+              if (imgData.image_urls && imgData.image_urls.length > 0) {
+                imageUrls = imgData.image_urls.map(url => `${API_BASE_URL}${url}`)
+              }
+            }
+          } catch (err) {
+            console.warn(`Failed to fetch images for task ${task.id}`)
+          }
+
+          return {
+            id: task.id,
+            title: task.name,
+            bounty: task.value,
+            location: task.description ? task.description.split('|')[1] || '' : '',
+            notes: task.description ? task.description.split('|')[0] || task.description : '',
+            publisherId: task.seller_id,
+            status: task.status === 'available' ? '待接单' : '已接单',
+            createdAt: task.created_at,
+            images: imageUrls
+          }
+        }))
+
+        // 过滤掉已售（sold）的任务
+        this.state.tasks = tasksWithImages.filter(task => task.status === '待接单')
+      }
+    } catch (e) {
+      console.error('获取任务列表失败:', e)
+    }
+  },
+
+  async postTask(taskData) {
+    if (!this.state.currentUser) {
+      return { success: false, message: '请先登录' }
+    }
+
+    // 拼接描述字段：notes|location
+    const description = taskData.location 
+      ? `${taskData.notes}|${taskData.location}` 
+      : taskData.notes
+
+    const payload = {
+      name: taskData.title,
+      seller_id: this.state.currentUser.id,
+      num: 1,
+      value: parseFloat(taskData.bounty) || 0,
+      description: description,
+      labels: [],
+      is_task: true  // 标记为任务
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/goods`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      
+      const newTask = await res.json()
+
+      if (!res.ok) {
+        return { success: false, message: newTask.error || '发布任务失败' }
+      }
+
+      // 上传图片 (如果有)
+      if (taskData.imageFiles && taskData.imageFiles.length > 0) {
+        const formData = new FormData()
+        formData.append('type', 'good')
+        formData.append('id', newTask.id)
+        
+        for (let i = 0; i < taskData.imageFiles.length; i++) {
+          formData.append('files', taskData.imageFiles[i])
+        }
+
+        const uploadRes = await fetch(`${API_BASE_URL}/upload`, {
+          method: 'POST',
+          body: formData
+        })
+        
+        if (!uploadRes.ok) {
+          const errData = await uploadRes.json()
+          return { success: true, message: `任务发布成功，但图片上传失败: ${errData.error}` }
+        }
+      }
+
+      await this.fetchTasks() // 刷新任务列表
+      return { success: true }
+
+    } catch (error) {
+      console.error('发布任务失败:', error)
+      return { success: false, message: '网络连接失败' }
+    }
+  },
+
+  async grabTask(taskId) {
+    if (!this.state.currentUser) {
+      return { success: false, message: '请先登录' }
+    }
+
+    try {
+      // 直接更新商品状态为已售（已接单）
+      const res = await fetch(`${API_BASE_URL}/goods/${taskId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'sold' })
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        return { success: false, message: data.error || '抢单失败' }
+      }
+
+      await this.fetchTasks() // 刷新任务列表
+      return { success: true }
+
+    } catch (error) {
+      console.error('抢单失败:', error)
+      return { success: false, message: '网络连接失败' }
+    }
+  },
+
+  async loadMyAcceptedTasks() {
+    if (!this.state.currentUser) {
+      return { success: false, message: '请先登录' }
+    }
+
+    // 简化版：由于不使用订单系统，暂时返回空列表
+    // 如需完整功能，需要后端提供查询接单人的接口
+    try {
+      return { 
+        success: true, 
+        tasks: [] 
+      }
+    } catch (error) {
+      console.error('加载已接单任务失败:', error)
+      return { success: false, message: '网络连接失败' }
+    }
   },
 })
