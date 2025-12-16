@@ -288,7 +288,7 @@ def update_user_verified(user_id: int, verified: bool = True) -> bool:
 def update_user_preferences(user_id: int, labels: List[int]) -> bool:
 	# Validate that all labels are allowed to be preferred
 	all_labels = get_all_labels()
-	allowed_ids = {l['id'] for l in all_labels if l.get('prefered', False)}
+	allowed_ids = {l['id'] for l in all_labels if l.get('can_subscribe', False)}
 	
 	if not set(labels).issubset(allowed_ids):
 		raise ValueError("包含不可订阅的标签")

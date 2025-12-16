@@ -57,6 +57,44 @@ export const store = reactive({
     localStorage.setItem('user', JSON.stringify(userData))
   },
 
+  // --- 获取单个商品 ---
+  async fetchItem(id) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/goods/${id}`)
+      if (!res.ok) return null
+      const item = await res.json()
+      
+      let imageUrls = []
+      try {
+        const imgRes = await fetch(`${API_BASE_URL}/good/${item.id}/images`)
+        if (imgRes.ok) {
+          const imgData = await imgRes.json()
+          if (imgData.image_urls) {
+            imageUrls = imgData.image_urls.map(url => `${API_BASE_URL}${url}`)
+          }
+        }
+      } catch (e) {}
+      
+      if (imageUrls.length === 0) {
+        imageUrls = ['https://via.placeholder.com/400x300?text=No+Image']
+      }
+
+      return {
+        id: item.id,
+        title: item.name,
+        price: item.value,
+        description: item.description,
+        sellerId: item.seller_id,
+        status: item.status === 'available' ? '在售' : '已售',
+        images: imageUrls,
+        category: '闲置'
+      }
+    } catch (e) {
+      console.error(e)
+      return null
+    }
+  },
+
   // --- 获取商品 (适配后端，额外获取图片) ---
   async fetchItems() {
     try {
@@ -119,7 +157,7 @@ export const store = reactive({
       num: 1,
       value: parseFloat(itemData.price),
       description: itemData.description,
-      labels: [] 
+      labels: itemData.labels || [] 
     }
 
     try {

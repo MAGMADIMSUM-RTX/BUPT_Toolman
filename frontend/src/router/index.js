@@ -14,6 +14,7 @@ const Test = () => import('../pages/Test.vue')
 
 const routes = [
   { path: '/', name: 'Home', component: Home },
+  { path: '/goods/:id', name: 'GoodDetail', component: Home },
   { path: '/tasks', name: 'Tasks', component: Tasks },
   { path: '/chat', name: 'Chat', component: Chat },
   { path: '/profile', name: 'Profile', component: Profile },

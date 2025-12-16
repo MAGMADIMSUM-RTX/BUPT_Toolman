@@ -2,12 +2,20 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { store } from '../store'
-import { LogOut, Star, Wallet, MapPin, Clock, Camera } from 'lucide-vue-next'
+import { API_BASE_URL } from '../config.js'
+import { LogOut, Star, Wallet, MapPin, Clock, Camera, Settings, X } from 'lucide-vue-next'
 
 const router = useRouter()
 const activeTab = ref('items')
 const user = computed(() => store.state.currentUser)
 const fileInput = ref(null)
+
+// 偏好设置相关
+const isPreferencesOpen = ref(false)
+const labels = ref([])
+const selectedLabels = ref([])
+const loadingPreferences = ref(false)
+const savingPreferences = ref(false)
 
 const myItems = computed(() => {
   if (!user.value) return []
@@ -42,6 +50,63 @@ const handleAvatarChange = async (e) => {
     alert('头像更新成功')
   } else {
     alert(result.message)
+  }
+}
+
+const openPreferences = async () => {
+  if (!user.value) return
+  isPreferencesOpen.value = true
+  loadingPreferences.value = true
+  
+  try {
+    // 1. 获取所有标签
+    const labelsRes = await fetch(`${API_BASE_URL}/labels`)
+    if (labelsRes.ok) {
+      const allLabels = await labelsRes.json()
+      // 过滤出可订阅的标签
+      labels.value = allLabels.filter(l => l.can_subscribe)
+    }
+
+    // 2. 获取用户最新信息（包含偏好）
+    const userRes = await fetch(`${API_BASE_URL}/user/${user.value.id}`)
+    if (userRes.ok) {
+      const userData = await userRes.json()
+      selectedLabels.value = userData.prefer || []
+    }
+  } catch (e) {
+    console.error('Failed to load preferences', e)
+    alert('加载偏好设置失败')
+  } finally {
+    loadingPreferences.value = false
+  }
+}
+
+const savePreferences = async () => {
+  if (!user.value) return
+  savingPreferences.value = true
+  
+  try {
+    const res = await fetch(`${API_BASE_URL}/user/${user.value.id}/preferences`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ labels: selectedLabels.value })
+    })
+    
+    const data = await res.json()
+    if (res.ok) {
+      alert('偏好设置已更新！')
+      isPreferencesOpen.value = false
+      // 更新本地 store 中的用户信息（可选）
+      // store.updateUser({ ...user.value, prefer: selectedLabels.value })
+    } else {
+      alert(data.error || '更新失败')
+    }
+  } catch (e) {
+    alert('网络错误')
+  } finally {
+    savingPreferences.value = false
   }
 }
 
@@ -82,7 +147,10 @@ const statusColor = (status) => {
           </div>
         </div>
       </div>
-      <button @click="handleLogout" class="outline-btn"><LogOut size="16" /> 退出登录</button>
+      <div class="header-actions">
+        <button @click="openPreferences" class="outline-btn"><Settings size="16" /> 偏好设置</button>
+        <button @click="handleLogout" class="outline-btn"><LogOut size="16" /> 退出登录</button>
+      </div>
     </div>
 
     <div class="tabs">
@@ -134,12 +202,53 @@ const statusColor = (status) => {
       </div>
 
     </div>
+
+    <!-- 偏好设置弹窗 -->
+    <Transition name="modal">
+      <div v-if="isPreferencesOpen" class="modal-overlay" @click.self="isPreferencesOpen = false">
+        <div class="modal-container">
+          <div class="modal-header">
+            <h3>偏好设置</h3>
+            <button @click="isPreferencesOpen = false" class="close-btn"><X size="22" /></button>
+          </div>
+          <div class="modal-body">
+            <p class="hint-text">选择你感兴趣的分类，当有新品上架时我们会通知你。</p>
+            
+            <div v-if="loadingPreferences" class="loading-text">加载中...</div>
+            
+            <div v-else class="tags-grid">
+              <label 
+                v-for="label in labels" 
+                :key="label.id" 
+                class="tag-item"
+                :class="{ active: selectedLabels.includes(label.id) }"
+              >
+                <input 
+                  type="checkbox" 
+                  :value="label.id" 
+                  v-model="selectedLabels"
+                  hidden
+                />
+                {{ label.name }}
+              </label>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button @click="isPreferencesOpen = false" class="cancel-btn">取消</button>
+            <button @click="savePreferences" class="primary-btn" :disabled="savingPreferences">
+              {{ savingPreferences ? '保存中...' : '保存设置' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <style scoped>
 .profile-header { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 30px; display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; }
 .user-info { display: flex; gap: 24px; align-items: center; }
+.header-actions { display: flex; gap: 12px; }
 
 /* 头像交互样式 */
 .avatar-wrapper { position: relative; cursor: pointer; width: 80px; height: 80px; border-radius: 50%; overflow: hidden; border: 4px solid var(--bg-body); }
@@ -189,4 +298,42 @@ html.dark .stat-badge.green { background: #064e3b; color: #6ee7b7; }
 .task-meta { display: flex; gap: 12px; font-size: 0.8rem; color: var(--text-secondary); }
 .task-meta span { display: flex; align-items: center; gap: 4px; }
 .bounty { font-weight: 700; color: #10b981; font-size: 1.1rem; }
+
+/* Modal Styles */
+.modal-overlay { position: fixed; inset: 0; z-index: 9999; background: var(--bg-modal-overlay); backdrop-filter: blur(6px); display: flex; justify-content: center; align-items: center; padding: 24px; }
+.modal-container { background: var(--bg-card); width: 100%; max-width: 520px; border-radius: 24px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; border: 1px solid var(--border); overflow: hidden; max-height: 90vh; }
+.modal-header { padding: 24px 28px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--bg-body); }
+.modal-header h3 { font-size: 1.35rem; font-weight: 700; color: var(--text-main); }
+.close-btn { background: transparent; color: var(--text-secondary); padding: 8px; border-radius: 50%; transition: 0.2s; border: none; cursor: pointer; }
+.close-btn:hover { background: var(--border); color: var(--text-main); }
+.modal-body { padding: 28px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
+.modal-footer { padding: 20px 28px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 16px; background: var(--bg-body); }
+.hint-text { color: var(--text-secondary); font-size: 0.95rem; }
+.loading-text { text-align: center; color: var(--text-secondary); padding: 20px; }
+
+.tags-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+.tag-item { 
+  padding: 8px 16px; 
+  background: var(--bg-input); 
+  border-radius: 20px; 
+  cursor: pointer; 
+  font-size: 0.9rem; 
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+.tag-item:hover { background: var(--border); }
+.tag-item.active { 
+  background: #eff6ff; 
+  color: var(--primary); 
+  border-color: var(--primary); 
+  font-weight: 600;
+}
+html.dark .tag-item.active { background: rgba(59, 130, 246, 0.2); }
+
+.primary-btn { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+.primary-btn:hover { opacity: 0.9; }
+.primary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.cancel-btn { background: transparent; padding: 10px 20px; font-weight: 600; color: var(--text-secondary); border-radius: 8px; border: none; cursor: pointer; }
+.cancel-btn:hover { color: var(--text-main); background: var(--border); }
 </style>

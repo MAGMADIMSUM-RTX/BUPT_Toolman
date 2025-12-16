@@ -1,13 +1,16 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { store } from '../store'
+import { API_BASE_URL } from '../config.js'
 import { Search, Plus, X, MessageCircle, Image as ImageIcon } from 'lucide-vue-next'
 
 const router = useRouter()
+const route = useRoute()
 const searchQuery = ref('')
 const isModalOpen = ref(false)
 const selectedItem = ref(null)
+const availableLabels = ref([])
 
 // 图片相关状态
 const imageFiles = ref([]) // 改为数组
@@ -16,13 +19,47 @@ const previewUrls = ref([])
 const form = ref({
   title: '',
   price: '',
-  category: '生活用品',
+  labels: [],
   description: ''
 })
 
-onMounted(() => {
+onMounted(async () => {
   store.fetchItems()
+  try {
+    const res = await fetch(`${API_BASE_URL}/labels`)
+    if (res.ok) {
+      availableLabels.value = await res.json()
+    }
+  } catch (e) {
+    console.error('Failed to fetch labels', e)
+  }
+
+  // Check for direct link
+  if (route.params.id) {
+    const item = await store.fetchItem(route.params.id)
+    if (item) {
+      selectedItem.value = item
+    }
+  }
 })
+
+watch(() => route.params.id, async (newId) => {
+  if (newId) {
+    const item = await store.fetchItem(newId)
+    if (item) {
+      selectedItem.value = item
+    }
+  } else {
+    selectedItem.value = null
+  }
+})
+
+const closeDetail = () => {
+  selectedItem.value = null
+  if (route.name === 'GoodDetail') {
+    router.push('/')
+  }
+}
 
 const filteredItems = computed(() => {
   return store.state.items.filter(item => 
@@ -59,7 +96,7 @@ const handlePost = async () => {
   const result = await store.postItem({
     title: form.value.title,
     price: Number(form.value.price),
-    category: form.value.category,
+    labels: form.value.labels,
     description: form.value.description,
     imageFiles: imageFiles.value // 传递文件数组
   })
@@ -67,7 +104,7 @@ const handlePost = async () => {
   if (result.success) {
     isModalOpen.value = false
     // 重置表单
-    form.value = { title: '', price: '', category: '生活用品', description: '' }
+    form.value = { title: '', price: '', labels: [], description: '' }
     imageFiles.value = []
     previewUrls.value = []
     if (result.message) {
@@ -186,15 +223,25 @@ const contactSeller = () => {
                 <label>价格 (¥) <span class="required">*</span></label>
                 <input v-model="form.price" type="number" placeholder="0.00" />
               </div>
-              <div class="form-group">
-                <label>分类</label>
-                <select v-model="form.category">
-                  <option>生活用品</option>
-                  <option>数码电子</option>
-                  <option>书籍教材</option>
-                  <option>美妆护肤</option>
-                  <option>交通工具</option>
-                </select>
+            </div>
+            
+            <div class="form-group">
+              <label>标签 (可多选)</label>
+              <div class="tags-input">
+                <label 
+                  v-for="label in availableLabels" 
+                  :key="label.id" 
+                  class="tag-choice"
+                  :class="{ active: form.labels.includes(label.id) }"
+                >
+                  <input 
+                    type="checkbox" 
+                    :value="label.id" 
+                    v-model="form.labels"
+                    hidden
+                  />
+                  {{ label.name }}
+                </label>
               </div>
             </div>
             <div class="form-group">
@@ -213,11 +260,11 @@ const contactSeller = () => {
     </Transition>
 
     <Transition name="modal">
-      <div v-if="selectedItem" class="modal-overlay" @click.self="selectedItem = null">
+      <div v-if="selectedItem" class="modal-overlay" @click.self="closeDetail">
         <div class="modal-container detail-modal">
           <div class="modal-header">
             <h3>商品详情</h3>
-            <button @click="selectedItem = null" class="close-btn"><X size="22" /></button>
+            <button @click="closeDetail" class="close-btn"><X size="22" /></button>
           </div>
           
           <div class="modal-body no-padding">
@@ -331,4 +378,24 @@ const contactSeller = () => {
 .remove-img-btn { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.5); color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; justify-content: center; align-items: center; cursor: pointer; border: none; font-size: 14px; }
 .add-more-btn { border: 2px dashed var(--border); border-radius: 8px; display: flex; justify-content: center; align-items: center; cursor: pointer; color: var(--text-secondary); aspect-ratio: 1; }
 .add-more-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+.tags-input { display: flex; flex-wrap: wrap; gap: 8px; }
+.tag-choice { 
+  padding: 6px 12px; 
+  background: var(--bg-input); 
+  border-radius: 16px; 
+  cursor: pointer; 
+  font-size: 0.85rem; 
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+.tag-choice:hover { background: var(--border); }
+.tag-choice.active { 
+  background: #eff6ff; 
+  color: var(--primary); 
+  border-color: var(--primary); 
+  font-weight: 600;
+}
+html.dark .tag-choice.active { background: rgba(59, 130, 246, 0.2); }
 </style>

@@ -51,6 +51,21 @@
     },
     {
         "id": 11,
+        "name": "显卡",
+        "can_subscribe": true
+    },
+    {
+        "id": 12,
+        "name": "内存",
+        "can_subscribe": true
+    },
+    {
+        "id": 13,
+        "name": "快递外卖",
+        "can_subscribe": true
+    },
+    {
+        "id": 14,
         "name": "RTX5090",
         "can_subscribe": true
     }
