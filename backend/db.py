@@ -79,6 +79,7 @@ def init_db() -> None:
 			sender_id INTEGER NOT NULL,
 			receiver_id INTEGER NOT NULL,
 			text TEXT NOT NULL,
+			read BOOLEAN DEFAULT FALSE,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY(sender_id) REFERENCES users(id),
 			FOREIGN KEY(receiver_id) REFERENCES users(id)
@@ -390,3 +391,53 @@ def get_latest_messages(user_id: int) -> List[Dict]:
 	).fetchall()
 	conn.close()
 	return [_row_to_dict(row) for row in rows if row is not None]
+
+
+def get_unread_count(user_id: int) -> int:
+	"""获取用户的未读消息数"""
+	conn = _get_conn()
+	row = conn.execute(
+		"SELECT COUNT(*) as count FROM messages WHERE receiver_id = ? AND read = 0",
+		(user_id,)
+	).fetchone()
+	conn.close()
+	return row['count'] if row else 0
+
+
+def get_unread_count_by_sender(receiver_id: int, sender_id: int) -> int:
+	"""获取来自某个用户的未读消息数"""
+	conn = _get_conn()
+	row = conn.execute(
+		"SELECT COUNT(*) as count FROM messages WHERE receiver_id = ? AND sender_id = ? AND read = 0",
+		(receiver_id, sender_id)
+	).fetchone()
+	conn.close()
+	return row['count'] if row else 0
+
+
+def mark_messages_as_read(receiver_id: int, sender_id: int) -> bool:
+	"""将来自某个发送者的所有消息标记为已读"""
+	conn = _get_conn()
+	cur = conn.cursor()
+	cur.execute(
+		"UPDATE messages SET read = 1 WHERE receiver_id = ? AND sender_id = ?",
+		(receiver_id, sender_id)
+	)
+	conn.commit()
+	updated = cur.rowcount
+	conn.close()
+	return updated > 0
+
+
+def mark_all_messages_as_read(user_id: int) -> bool:
+	"""将用户的所有未读消息标记为已读"""
+	conn = _get_conn()
+	cur = conn.cursor()
+	cur.execute(
+		"UPDATE messages SET read = 1 WHERE receiver_id = ? AND read = 0",
+		(user_id,)
+	)
+	conn.commit()
+	updated = cur.rowcount
+	conn.close()
+	return updated > 0
