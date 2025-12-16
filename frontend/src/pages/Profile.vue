@@ -1,14 +1,15 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { store } from '../store'
 import { API_BASE_URL } from '../config.js'
-import { LogOut, Star, Wallet, MapPin, Clock, Camera, Settings, X } from 'lucide-vue-next'
+import { LogOut, Star, Wallet, MapPin, Clock, Camera, Settings, X, DollarSign } from 'lucide-vue-next'
 
 const router = useRouter()
 const activeTab = ref('items')
 const user = computed(() => store.state.currentUser)
 const fileInput = ref(null)
+const acceptedTasks = ref([])
 
 // 偏好设置相关
 const isPreferencesOpen = ref(false)
@@ -17,6 +18,19 @@ const selectedLabels = ref([])
 const loadingPreferences = ref(false)
 const savingPreferences = ref(false)
 
+onMounted(async () => {
+  if (user.value) {
+    await loadAcceptedTasks()
+  }
+})
+
+const loadAcceptedTasks = async () => {
+  const result = await store.loadMyAcceptedTasks()
+  if (result.success) {
+    acceptedTasks.value = result.tasks
+  }
+}
+
 const myItems = computed(() => {
   if (!user.value) return []
   return store.state.items.filter(i => i.sellerId === user.value.id)
@@ -24,7 +38,8 @@ const myItems = computed(() => {
 
 const myTasks = computed(() => {
   if (!user.value) return []
-  return store.state.tasks.filter(t => t.publisherId === user.value.id || t.runnerId === user.value.id)
+  // 只显示我发布的任务
+  return store.state.tasks.filter(t => t.publisherId === user.value.id)
 })
 
 const handleLogout = () => { store.logout(); router.push('/login') }
@@ -155,7 +170,8 @@ const statusColor = (status) => {
 
     <div class="tabs">
       <button @click="activeTab='items'" :class="['tab-item', activeTab==='items'?'active':'']">我发布的商品 ({{ myItems.length }})</button>
-      <button @click="activeTab='tasks'" :class="['tab-item', activeTab==='tasks'?'active':'']">我的任务 ({{ myTasks.length }})</button>
+      <button @click="activeTab='tasks'" :class="['tab-item', activeTab==='tasks'?'active':'']">我发布的任务 ({{ myTasks.length }})</button>
+      <button @click="activeTab='accepted'" :class="['tab-item', activeTab==='accepted'?'active':'']">已接单任务 ({{ acceptedTasks.length }})</button>
     </div>
 
     <div class="tab-content">
@@ -180,7 +196,7 @@ const statusColor = (status) => {
       </div>
 
       <div v-if="activeTab === 'tasks'">
-        <div v-if="myTasks.length === 0" class="empty-state">暂无相关任务。</div>
+        <div v-if="myTasks.length === 0" class="empty-state">暂无发布的任务。</div>
         <div class="task-list">
           <div v-for="task in myTasks" :key="task.id" class="task-row">
             <div class="task-main">
@@ -196,6 +212,36 @@ const statusColor = (status) => {
             </div>
             <div class="task-right">
               <span class="bounty">+ {{ task.bounty }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 已接单任务 -->
+      <div v-if="activeTab === 'accepted'">
+        <div v-if="acceptedTasks.length === 0" class="empty-state">暂无已接单的任务。</div>
+        <div class="accepted-grid">
+          <div v-for="task in acceptedTasks" :key="task.id" class="accepted-card">
+            <div class="card-header">
+              <span class="status-badge green">{{ task.status === 'completed' ? '已完成' : '进行中' }}</span>
+              <div class="bounty-box">
+                <DollarSign size="18" stroke-width="3" />
+                <span>{{ task.bounty }}</span>
+              </div>
+            </div>
+            
+            <h3 class="accepted-title">{{ task.title }}</h3>
+            
+            <!-- 任务图片展示 -->
+            <div v-if="task.images && task.images.length > 0" class="task-images">
+              <img :src="task.images[0]" :alt="task.title" class="task-image" />
+            </div>
+            
+            <p class="task-note">{{ task.notes }}</p>
+            
+            <div class="task-card-meta">
+              <div class="meta-item"><MapPin size="14"/> {{ task.location || '无位置' }}</div>
+              <div class="meta-item"><Clock size="14"/> 接单于 {{ new Date(task.acceptedAt).toLocaleDateString() }}</div>
             </div>
           </div>
         </div>
@@ -298,6 +344,22 @@ html.dark .stat-badge.green { background: #064e3b; color: #6ee7b7; }
 .task-meta { display: flex; gap: 12px; font-size: 0.8rem; color: var(--text-secondary); }
 .task-meta span { display: flex; align-items: center; gap: 4px; }
 .bounty { font-weight: 700; color: #10b981; font-size: 1.1rem; }
+
+/* 已接单任务卡片样式 */
+.accepted-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+.accepted-card { background: var(--bg-card); border-radius: 16px; padding: 20px; border: 1px solid var(--border); transition: all 0.3s; }
+.accepted-card:hover { border-color: #10b981; box-shadow: var(--shadow-md); }
+.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.status-badge { padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; }
+.status-badge.green { background: #d1fae5; color: #065f46; }
+html.dark .status-badge.green { background: #065f46; color: #d1fae5; }
+.bounty-box { display: flex; align-items: center; color: #059669; font-weight: 800; font-size: 1.2rem; gap: 2px; }
+.accepted-title { font-size: 1.15rem; font-weight: 700; color: var(--text-main); margin-bottom: 12px; }
+.task-images { margin-bottom: 12px; }
+.task-image { width: 100%; height: 160px; object-fit: cover; border-radius: 12px; }
+.task-note { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 16px; line-height: 1.5; }
+.task-card-meta { display: flex; flex-direction: column; gap: 8px; }
+.meta-item { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--text-secondary); }
 
 /* Modal Styles */
 .modal-overlay { position: fixed; inset: 0; z-index: 9999; background: var(--bg-modal-overlay); backdrop-filter: blur(6px); display: flex; justify-content: center; align-items: center; padding: 24px; }

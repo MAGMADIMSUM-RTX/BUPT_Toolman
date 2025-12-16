@@ -233,6 +233,39 @@ def get_user_orders(user_id):
     return jsonify(orders)
 
 
+@app.route("/orders/mine", methods=["GET"])
+def get_my_orders():
+    """获取当前用户的订单"""
+    user_id = request.headers.get("X-User-ID")
+    if not user_id:
+        return jsonify({"error": "User ID required"}), 401
+    
+    try:
+        user_id = int(user_id)
+    except ValueError:
+        return jsonify({"error": "Invalid User ID"}), 400
+
+    orders = db_module.get_orders_by_buyer(user_id)
+    # 丰富订单信息，加入商品详情
+    for order in orders:
+        good = db_module.get_good(order['goods_id'])
+        if good:
+            order['good_name'] = good['name']
+            order['good_value'] = good['value']
+            order['good_description'] = good['description']
+            # 尝试获取一张图片
+            good_dir = os.path.join(UPLOAD_FOLDER, f"good_{good['id']}")
+            if os.path.exists(good_dir):
+                for file in os.listdir(good_dir):
+                    if file.startswith(f"good_{good['id']}_") and file.split('.')[-1].lower() in ALLOWED_EXTENSIONS:
+                        order['good_image'] = f"/media/good_{good['id']}/{file}"
+                        break
+            if 'good_image' not in order:
+                 order['good_image'] = ""
+
+    return jsonify(orders)
+
+
 @app.route("/good/<int:good_id>/orders")
 def get_good_orders(good_id):
     """获取某商品的订单（供卖家查看）"""
@@ -380,6 +413,52 @@ def update_good_status(good_id):
             return jsonify({"error": "Update failed"}), 400
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+
+
+@app.route("/goods/<int:good_id>/update", methods=["POST"])
+def update_good_and_create_order(good_id):
+    """
+    更新商品状态并创建订单 (原子操作)
+    """
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "No data"}), 400
+    
+    status = data.get("status")
+    buyer_id = data.get("buyer_id")
+    
+    if status == "sold":
+        if not buyer_id:
+             return jsonify({"error": "Buyer ID required for purchase"}), 400
+        
+        conn = db_module._get_conn()
+        try:
+            # 1. Check if good is available
+            good_row = conn.execute("SELECT * FROM goods WHERE id = ?", (good_id,)).fetchone()
+            if not good_row:
+                conn.close()
+                return jsonify({"error": "Good not found"}), 404
+            if good_row['status'] != 'available':
+                conn.close()
+                return jsonify({"error": "Good is not available"}), 400
+                
+            # 2. Update status and create order in transaction
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("UPDATE goods SET status = ? WHERE id = ?", ("sold", good_id))
+            conn.execute("INSERT INTO orders (goods_id, num, buyer_id, status) VALUES (?, ?, ?, ?)", (good_id, 1, buyer_id, "processing"))
+            conn.commit()
+            conn.close()
+            
+            return jsonify({"message": "Purchase successful"}), 200
+        except Exception as e:
+            try:
+                conn.rollback()
+            except:
+                pass
+            conn.close()
+            return jsonify({"error": f"Purchase failed: {str(e)}"}), 500
+             
+    return jsonify({"error": "Invalid status or action"}), 400
 
 
 @app.route("/orders", methods=["POST"])
