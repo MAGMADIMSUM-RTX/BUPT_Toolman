@@ -145,6 +145,140 @@ export const store = reactive({
     }
   },
 
+  // --- 确认订单完成 ---
+  async completeOrder(orderId) {
+    if (!this.state.currentUser) return { success: false, message: '未登录' }
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/orders/${orderId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'completed' })
+      })
+      
+      if (res.ok) {
+        return { success: true }
+      } else {
+        const data = await res.json()
+        return { success: false, message: data.error || '操作失败' }
+      }
+    } catch (e) {
+      return { success: false, message: '网络错误' }
+    }
+  },
+
+  // --- 获取我的订单 ---
+  async loadMyOrders() {
+    if (!this.state.currentUser) return { success: false, message: '未登录' }
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/orders/mine`, {
+        headers: {
+          'X-User-ID': this.state.currentUser.id
+        }
+      })
+      
+      if (res.ok) {
+        const orders = await res.json()
+        // 处理图片路径
+        const processedOrders = orders.map(order => ({
+          ...order,
+          good_image: order.good_image ? `${API_BASE_URL}${order.good_image}` : 'https://via.placeholder.com/150'
+        }))
+        return { success: true, orders: processedOrders }
+      } else {
+        return { success: false, message: '获取订单失败' }
+      }
+    } catch (e) {
+      return { success: false, message: '网络错误' }
+    }
+  },
+
+  // --- 获取我发布的商品 ---
+  async loadMyItems() {
+    if (!this.state.currentUser) return { success: false, message: '未登录' }
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/user/${this.state.currentUser.id}/goods`)
+      if (res.ok) {
+        const rawData = await res.json()
+        
+        const itemsWithImages = await Promise.all(rawData.map(async (item) => {
+          let imageUrls = []
+          try {
+            const imgRes = await fetch(`${API_BASE_URL}/good/${item.id}/images`)
+            if (imgRes.ok) {
+              const imgData = await imgRes.json()
+              if (imgData.image_urls) {
+                imageUrls = imgData.image_urls.map(url => `${API_BASE_URL}${url}`)
+              }
+            }
+          } catch (e) {}
+          
+          if (imageUrls.length === 0) {
+            imageUrls = ['https://via.placeholder.com/400x300?text=No+Image']
+          }
+
+          return {
+            id: item.id,
+            title: item.name,
+            price: item.value,
+            description: item.description,
+            sellerId: item.seller_id,
+            status: item.status === 'available' ? '在售' : '已售',
+            images: imageUrls,
+            category: '闲置'
+          }
+        }))
+        return { success: true, items: itemsWithImages }
+      }
+      return { success: false, message: '获取商品失败' }
+    } catch (e) {
+      return { success: false, message: '网络错误' }
+    }
+  },
+
+  // --- 获取我发布的任务 ---
+  async loadMyTasks() {
+    if (!this.state.currentUser) return { success: false, message: '未登录' }
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/user/${this.state.currentUser.id}/tasks`)
+      if (res.ok) {
+        const rawData = await res.json()
+        
+        const tasksWithImages = await Promise.all(rawData.map(async (task) => {
+          let imageUrls = []
+          try {
+            const imgRes = await fetch(`${API_BASE_URL}/good/${task.id}/images`)
+            if (imgRes.ok) {
+              const imgData = await imgRes.json()
+              if (imgData.image_urls) {
+                imageUrls = imgData.image_urls.map(url => `${API_BASE_URL}${url}`)
+              }
+            }
+          } catch (e) {}
+
+          return {
+            id: task.id,
+            title: task.name,
+            bounty: task.value,
+            location: task.description ? task.description.split('|')[1] || '' : '',
+            notes: task.description ? task.description.split('|')[0] || task.description : '',
+            publisherId: task.seller_id,
+            status: task.status === 'available' ? '待接单' : '已接单',
+            createdAt: task.created_at,
+            images: imageUrls
+          }
+        }))
+        return { success: true, tasks: tasksWithImages }
+      }
+      return { success: false, message: '获取任务失败' }
+    } catch (e) {
+      return { success: false, message: '网络错误' }
+    }
+  },
+
   // --- 发布商品 (分两步：先创建商品，后上传图片) ---
   async postItem(itemData) {
     if (!this.state.currentUser) {

@@ -219,6 +219,14 @@ def get_user_goods(user_id):
     return jsonify(goods)
 
 
+@app.route("/user/<int:user_id>/tasks")
+def get_user_tasks(user_id):
+    """获取用户发布的任务"""
+    tasks = db_module.get_goods_by_seller(user_id, False)
+    return jsonify(tasks)
+
+
+
 @app.route("/user/<int:user_id>/orders")
 def get_user_orders(user_id):
     """获取用户的订单（作为买家）"""

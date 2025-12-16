@@ -9,7 +9,9 @@ const router = useRouter()
 const activeTab = ref('items')
 const user = computed(() => store.state.currentUser)
 const fileInput = ref(null)
-const acceptedTasks = ref([])
+const myOrders = ref([])
+const myItems = ref([])
+const myTasks = ref([])
 
 // 偏好设置相关
 const isPreferencesOpen = ref(false)
@@ -20,27 +22,46 @@ const savingPreferences = ref(false)
 
 onMounted(async () => {
   if (user.value) {
-    await loadAcceptedTasks()
+    await Promise.all([
+      loadMyOrders(),
+      loadMyItems(),
+      loadMyTasks()
+    ])
   }
 })
 
-const loadAcceptedTasks = async () => {
-  const result = await store.loadMyAcceptedTasks()
+const loadMyOrders = async () => {
+  const result = await store.loadMyOrders()
   if (result.success) {
-    acceptedTasks.value = result.tasks
+    myOrders.value = result.orders
   }
 }
 
-const myItems = computed(() => {
-  if (!user.value) return []
-  return store.state.items.filter(i => i.sellerId === user.value.id)
-})
+const handleCompleteOrder = async (orderId) => {
+  if (confirm('确认已收到商品并完成订单吗？')) {
+    const result = await store.completeOrder(orderId)
+    if (result.success) {
+      alert('订单已完成')
+      await loadMyOrders() // 刷新列表
+    } else {
+      alert(result.message)
+    }
+  }
+}
 
-const myTasks = computed(() => {
-  if (!user.value) return []
-  // 只显示我发布的任务
-  return store.state.tasks.filter(t => t.publisherId === user.value.id)
-})
+const loadMyItems = async () => {
+  const result = await store.loadMyItems()
+  if (result.success) {
+    myItems.value = result.items
+  }
+}
+
+const loadMyTasks = async () => {
+  const result = await store.loadMyTasks()
+  if (result.success) {
+    myTasks.value = result.tasks
+  }
+}
 
 const handleLogout = () => { store.logout(); router.push('/login') }
 
@@ -156,10 +177,10 @@ const statusColor = (status) => {
         <div>
           <h1 class="profile-name">{{ user.name }}</h1>
           <p class="profile-id">Email: {{ user.email }}</p>
-          <div class="badges">
+          <!-- <div class="badges">
             <span class="stat-badge yellow"><Star size="14" fill="currentColor"/> 信用分: {{ user.creditScore }}</span>
             <span class="stat-badge green"><Wallet size="14"/> 余额: ¥{{ user.balance.toFixed(2) }}</span>
-          </div>
+          </div> -->
         </div>
       </div>
       <div class="header-actions">
@@ -171,7 +192,7 @@ const statusColor = (status) => {
     <div class="tabs">
       <button @click="activeTab='items'" :class="['tab-item', activeTab==='items'?'active':'']">我发布的商品 ({{ myItems.length }})</button>
       <button @click="activeTab='tasks'" :class="['tab-item', activeTab==='tasks'?'active':'']">我发布的任务 ({{ myTasks.length }})</button>
-      <button @click="activeTab='accepted'" :class="['tab-item', activeTab==='accepted'?'active':'']">已接单任务 ({{ acceptedTasks.length }})</button>
+      <button @click="activeTab='accepted'" :class="['tab-item', activeTab==='accepted'?'active':'']">我的订单 ({{ myOrders.length }})</button>
     </div>
 
     <div class="tab-content">
@@ -217,31 +238,33 @@ const statusColor = (status) => {
         </div>
       </div>
 
-      <!-- 已接单任务 -->
+      <!-- 我的订单 -->
       <div v-if="activeTab === 'accepted'">
-        <div v-if="acceptedTasks.length === 0" class="empty-state">暂无已接单的任务。</div>
+        <div v-if="myOrders.length === 0" class="empty-state">暂无购买记录。</div>
         <div class="accepted-grid">
-          <div v-for="task in acceptedTasks" :key="task.id" class="accepted-card">
+          <div v-for="order in myOrders" :key="order.id" class="accepted-card">
             <div class="card-header">
-              <span class="status-badge green">{{ task.status === 'completed' ? '已完成' : '进行中' }}</span>
+              <span class="status-badge green">{{ order.status }}</span>
               <div class="bounty-box">
-                <DollarSign size="18" stroke-width="3" />
-                <span>{{ task.bounty }}</span>
+                <span>¥{{ order.good_value }}</span>
               </div>
             </div>
             
-            <h3 class="accepted-title">{{ task.title }}</h3>
+            <h3 class="accepted-title">{{ order.good_name }}</h3>
             
-            <!-- 任务图片展示 -->
-            <div v-if="task.images && task.images.length > 0" class="task-images">
-              <img :src="task.images[0]" :alt="task.title" class="task-image" />
+            <!-- 商品图片展示 -->
+            <div v-if="order.good_image" class="task-images">
+              <img :src="order.good_image" :alt="order.good_name" class="task-image" />
             </div>
             
-            <p class="task-note">{{ task.notes }}</p>
+            <p class="task-note">{{ order.good_description }}</p>
             
             <div class="task-card-meta">
-              <div class="meta-item"><MapPin size="14"/> {{ task.location || '无位置' }}</div>
-              <div class="meta-item"><Clock size="14"/> 接单于 {{ new Date(task.acceptedAt).toLocaleDateString() }}</div>
+              <div class="meta-item"><Clock size="14"/> 下单时间: {{ new Date(order.created_at).toLocaleString() }}</div>
+            </div>
+
+            <div v-if="order.status !== 'completed'" class="card-actions">
+              <button @click="handleCompleteOrder(order.id)" class="confirm-btn">确认完成</button>
             </div>
           </div>
         </div>
@@ -360,6 +383,9 @@ html.dark .status-badge.green { background: #065f46; color: #d1fae5; }
 .task-note { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 16px; line-height: 1.5; }
 .task-card-meta { display: flex; flex-direction: column; gap: 8px; }
 .meta-item { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--text-secondary); }
+.card-actions { margin-top: 16px; display: flex; justify-content: flex-end; }
+.confirm-btn { background: var(--primary); color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 0.9rem; }
+.confirm-btn:hover { opacity: 0.9; }
 
 /* Modal Styles */
 .modal-overlay { position: fixed; inset: 0; z-index: 9999; background: var(--bg-modal-overlay); backdrop-filter: blur(6px); display: flex; justify-content: center; align-items: center; padding: 24px; }

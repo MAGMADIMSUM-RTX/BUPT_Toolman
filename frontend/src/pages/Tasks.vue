@@ -7,7 +7,6 @@ const isModalOpen = ref(false)
 const activeTab = ref('available') // 'available' 或 'accepted'
 const tasks = computed(() => store.state.tasks)
 const user = computed(() => store.state.currentUser)
-const acceptedTasks = ref([])
 
 const form = ref({ title: '', bounty: '', location: '', notes: '' })
 const imageFiles = ref([])
@@ -15,17 +14,7 @@ const imagePreviewUrls = ref([])
 
 onMounted(async () => {
   await store.fetchTasks()
-  if (user.value) {
-    await loadAcceptedTasks()
-  }
 })
-
-const loadAcceptedTasks = async () => {
-  const result = await store.loadMyAcceptedTasks()
-  if (result.success) {
-    acceptedTasks.value = result.tasks
-  }
-}
 
 const handleImageSelect = (event) => {
   const files = Array.from(event.target.files)
@@ -107,12 +96,6 @@ const handleGrab = async (id) => {
       >
         可接任务
       </button>
-      <button 
-        :class="['tab-btn', { active: activeTab === 'accepted' }]"
-        @click="activeTab = 'accepted'"
-      >
-        我的接单
-      </button>
     </div>
 
     <!-- 可接任务列表 -->
@@ -150,36 +133,7 @@ const handleGrab = async (id) => {
       </div>
     </div>
 
-    <!-- 已接单任务列表 -->
-    <div v-show="activeTab === 'accepted'" class="task-grid">
-      <div v-for="task in acceptedTasks" :key="task.id" class="task-card accepted">
-        <div class="card-header">
-          <span class="status-badge green">{{ task.status === 'completed' ? '已完成' : '进行中' }}</span>
-          <div class="bounty-box">
-            <DollarSign size="18" stroke-width="3" />
-            <span>{{ task.bounty }}</span>
-          </div>
-        </div>
-        
-        <h3 class="task-title">{{ task.title }}</h3>
-        
-        <!-- 任务图片展示 -->
-        <div v-if="task.images && task.images.length > 0" class="task-images">
-          <img :src="task.images[0]" :alt="task.title" class="task-image" />
-        </div>
-        
-        <p class="task-note">{{ task.notes }}</p>
-        
-        <div class="task-meta">
-          <div class="meta-item"><MapPin size="14"/> {{ task.location || '无位置' }}</div>
-          <div class="meta-item"><Clock size="14"/> 接单于 {{ new Date(task.acceptedAt).toLocaleDateString() }}</div>
-        </div>
-      </div>
-      
-      <div v-if="acceptedTasks.length === 0" class="empty-state">
-        <p>暂无已接单的任务</p>
-      </div>
-    </div>
+
 
     <Transition name="modal">
       <div v-if="isModalOpen" class="modal-overlay" @click.self="isModalOpen = false">
