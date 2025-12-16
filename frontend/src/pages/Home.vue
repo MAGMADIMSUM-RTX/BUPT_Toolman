@@ -135,6 +135,39 @@ const contactSeller = () => {
     router.push('/chat')
   }
 }
+
+const buyItem = async () => {
+  if (!store.state.currentUser) {
+    alert('请先登录')
+    router.push('/login')
+    return
+  }
+  
+  if (!confirm('确定要购买此商品吗？')) return
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/goods/${selectedItem.value.id}/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'sold',
+        buyer_id: store.state.currentUser.id
+      })
+    })
+    
+    const data = await res.json()
+    if (res.ok) {
+      alert('购买成功！')
+      selectedItem.value.status = '已售'
+      // Refresh list
+      store.fetchItems()
+    } else {
+      alert(data.error || '购买失败')
+    }
+  } catch (e) {
+    alert('网络错误')
+  }
+}
 </script>
 
 <template>
@@ -295,6 +328,13 @@ const contactSeller = () => {
             <button @click="contactSeller" class="primary-btn full-width">
               <MessageCircle size="18" /> 联系卖家
             </button>
+            <button 
+              v-if="selectedItem.status === '在售' && (!store.state.currentUser || store.state.currentUser.id !== selectedItem.sellerId)"
+              @click="buyItem" 
+              class="primary-btn full-width buy-btn"
+            >
+              立即购买
+            </button>
           </div>
         </div>
       </div>
@@ -355,6 +395,8 @@ const contactSeller = () => {
 .detail-desc-box label { display: block; font-size: 0.9rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 8px; }
 .detail-text { font-size: 1rem; color: var(--text-main); line-height: 1.7; white-space: pre-wrap; }
 .full-width { width: 100%; }
+.buy-btn { background: #ef4444; }
+.buy-btn:hover { background: #dc2626; }
 
 /* --- 上传图片样式 --- */
 .upload-box {

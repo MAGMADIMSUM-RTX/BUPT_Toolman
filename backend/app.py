@@ -382,6 +382,52 @@ def update_good_status(good_id):
         return jsonify({"error": str(e)}), 400
 
 
+@app.route("/goods/<int:good_id>/update", methods=["POST"])
+def update_good_and_create_order(good_id):
+    """
+    更新商品状态并创建订单 (原子操作)
+    """
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "No data"}), 400
+    
+    status = data.get("status")
+    buyer_id = data.get("buyer_id")
+    
+    if status == "sold":
+        if not buyer_id:
+             return jsonify({"error": "Buyer ID required for purchase"}), 400
+        
+        conn = db_module._get_conn()
+        try:
+            # 1. Check if good is available
+            good_row = conn.execute("SELECT * FROM goods WHERE id = ?", (good_id,)).fetchone()
+            if not good_row:
+                conn.close()
+                return jsonify({"error": "Good not found"}), 404
+            if good_row['status'] != 'available':
+                conn.close()
+                return jsonify({"error": "Good is not available"}), 400
+                
+            # 2. Update status and create order in transaction
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("UPDATE goods SET status = ? WHERE id = ?", ("sold", good_id))
+            conn.execute("INSERT INTO orders (goods_id, num, buyer_id, status) VALUES (?, ?, ?, ?)", (good_id, 1, buyer_id, "processing"))
+            conn.commit()
+            conn.close()
+            
+            return jsonify({"message": "Purchase successful"}), 200
+        except Exception as e:
+            try:
+                conn.rollback()
+            except:
+                pass
+            conn.close()
+            return jsonify({"error": f"Purchase failed: {str(e)}"}), 500
+             
+    return jsonify({"error": "Invalid status or action"}), 400
+
+
 @app.route("/orders", methods=["POST"])
 def create_order():
     """创建订单"""
