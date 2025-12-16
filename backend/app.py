@@ -233,6 +233,39 @@ def get_user_orders(user_id):
     return jsonify(orders)
 
 
+@app.route("/orders/mine", methods=["GET"])
+def get_my_orders():
+    """获取当前用户的订单"""
+    user_id = request.headers.get("X-User-ID")
+    if not user_id:
+        return jsonify({"error": "User ID required"}), 401
+    
+    try:
+        user_id = int(user_id)
+    except ValueError:
+        return jsonify({"error": "Invalid User ID"}), 400
+
+    orders = db_module.get_orders_by_buyer(user_id)
+    # 丰富订单信息，加入商品详情
+    for order in orders:
+        good = db_module.get_good(order['goods_id'])
+        if good:
+            order['good_name'] = good['name']
+            order['good_value'] = good['value']
+            order['good_description'] = good['description']
+            # 尝试获取一张图片
+            good_dir = os.path.join(UPLOAD_FOLDER, f"good_{good['id']}")
+            if os.path.exists(good_dir):
+                for file in os.listdir(good_dir):
+                    if file.startswith(f"good_{good['id']}_") and file.split('.')[-1].lower() in ALLOWED_EXTENSIONS:
+                        order['good_image'] = f"/media/good_{good['id']}/{file}"
+                        break
+            if 'good_image' not in order:
+                 order['good_image'] = ""
+
+    return jsonify(orders)
+
+
 @app.route("/good/<int:good_id>/orders")
 def get_good_orders(good_id):
     """获取某商品的订单（供卖家查看）"""
