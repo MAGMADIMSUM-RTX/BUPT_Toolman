@@ -493,6 +493,81 @@ export const store = reactive({
     return this.state.users[userId] || null
   },
 
+  async getUnreadCount() {
+    if (!this.state.currentUser) {
+      return { success: false, count: 0 }
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/messages/unread/count`, {
+        method: 'GET',
+        headers: {
+          'X-User-ID': this.state.currentUser.id
+        }
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        return { success: true, count: data.unreadCount }
+      } else {
+        return { success: false, count: 0 }
+      }
+    } catch (e) {
+      console.error('获取未读消息数出错:', e)
+      return { success: false, count: 0 }
+    }
+  },
+
+  async getUnreadCountByUser(userId) {
+    if (!this.state.currentUser) {
+      return { success: false, count: 0 }
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/messages/unread/by-sender/${userId}`, {
+        method: 'GET',
+        headers: {
+          'X-User-ID': this.state.currentUser.id
+        }
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        return { success: true, count: data.unreadCount }
+      } else {
+        return { success: false, count: 0 }
+      }
+    } catch (e) {
+      console.error('获取未读消息数出错:', e)
+      return { success: false, count: 0 }
+    }
+  },
+
+  async markMessagesAsRead(senderId) {
+    if (!this.state.currentUser) {
+      return { success: false }
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/messages/mark-read/${senderId}`, {
+        method: 'PUT',
+        headers: {
+          'X-User-ID': this.state.currentUser.id
+        }
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        return { success: data.success }
+      } else {
+        return { success: false }
+      }
+    } catch (e) {
+      console.error('标记消息已读出错:', e)
+      return { success: false }
+    }
+  },
+
   // --- 跑腿任务相关功能 ---
   async fetchTasks() {
     try {

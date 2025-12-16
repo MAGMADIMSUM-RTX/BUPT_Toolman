@@ -8,6 +8,7 @@ const text = ref('')
 const activeChatUser = ref(null)
 const scrollRef = ref(null)
 const loading = ref(true)
+const unreadCounts = ref({})  // 存储每个用户的未读消息数
 let pollInterval = null
 
 const chatUsers = computed(() => {
@@ -71,12 +72,37 @@ onMounted(async () => {
     loading.value = false
   }
   
+  // 进入聊天页面时，立即标记当前对话的消息为已读
+  if (currentUser.value) {
+    await store.markMessagesAsRead(activeChatUser.value.id)
+    unreadCounts.value[activeChatUser.value.id] = 0
+  }
+  
   // 启动轮询
   startPolling()
+  
+  // 定期检查未读消息
+  const unreadCheckInterval = setInterval(async () => {
+    for (const user of chatUsers.value) {
+      if (user && user.id !== activeChatUser.value?.id) {
+        const result = await store.getUnreadCountByUser(user.id)
+        if (result.success) {
+          unreadCounts.value[user.id] = result.count
+        }
+      }
+    }
+  }, 2000)  // 每 2 秒检查一次
+  
+  // 保存清理函数
+  window._unreadCheckInterval = unreadCheckInterval
 })
 
 onUnmounted(() => {
   stopPolling()
+  // 清理未读检查定时器
+  if (window._unreadCheckInterval) {
+    clearInterval(window._unreadCheckInterval)
+  }
 })
 
 const activeMessages = computed(() => {
@@ -94,6 +120,10 @@ watch(activeChatUser, async (newUser) => {
     scrollToBottom()
     // 重启轮询以加载新对话的消息
     startPolling()
+    // 标记这个用户的消息为已读
+    await store.markMessagesAsRead(newUser.id)
+    // 清除未读计数
+    unreadCounts.value[newUser.id] = 0
   }
 })
 
@@ -129,7 +159,12 @@ const handleSend = async () => {
           @click="activeChatUser = u"
           :class="['user-item', activeChatUser?.id === u.id ? 'active' : '']"
         >
-          <img :src="u.avatar" class="avatar" />
+          <div class="avatar-wrapper">
+            <img :src="u.avatar" class="avatar" />
+            <div v-if="unreadCounts[u.id] > 0" class="unread-badge">
+              {{ unreadCounts[u.id] > 99 ? '99+' : unreadCounts[u.id] }}
+            </div>
+          </div>
           <div class="user-info">
             <div class="name">{{ u.name }}</div>
             <div class="sub-text">点击查看消息</div>
@@ -181,7 +216,9 @@ const handleSend = async () => {
 .user-item { display: flex; align-items: center; gap: 12px; padding: 16px 20px; cursor: pointer; transition: background 0.2s; border-bottom: 1px solid transparent; }
 .user-item:hover { background: var(--bg-input); }
 .user-item.active { background: var(--bg-card); border-left: 4px solid var(--primary); }
+.avatar-wrapper { position: relative; display: flex; align-items: center; }
 .avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+.unread-badge { position: absolute; top: -6px; right: -6px; background: #ff4757; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; border: 2px solid var(--bg-body); }
 .name { font-weight: 600; font-size: 0.95rem; color: var(--text-main); }
 .sub-text { font-size: 0.8rem; color: var(--text-secondary); }
 .empty-list { padding: 20px; text-align: center; color: var(--text-secondary); font-size: 0.9rem; }

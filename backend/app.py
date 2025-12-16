@@ -669,6 +669,7 @@ def send_message():
             "senderId": message['sender_id'],
             "receiverId": message['receiver_id'],
             "text": message['text'],
+            "read": message.get('read', False),
             "createdAt": message['created_at']
         }), 201
     except ValueError as e:
@@ -699,6 +700,7 @@ def get_messages_with_user(user_id):
             "senderId": m['sender_id'],
             "receiverId": m['receiver_id'],
             "text": m['text'],
+            "read": m.get('read', False),
             "createdAt": m['created_at']
         } for m in messages])
     except Exception as e:
@@ -741,6 +743,69 @@ def get_message_list():
                 result.append(user)
         
         return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/messages/unread/count", methods=["GET"])
+def get_unread_count():
+    """
+    获取未读消息数量
+    """
+    current_user_id_header = request.headers.get("X-User-ID")
+    if not current_user_id_header:
+        return jsonify({"error": "Current user ID required in X-User-ID header"}), 400
+    
+    try:
+        current_user_id = int(current_user_id_header)
+    except ValueError:
+        return jsonify({"error": "Invalid current user ID"}), 400
+    
+    try:
+        count = db_module.get_unread_count(current_user_id)
+        return jsonify({"unreadCount": count})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/messages/unread/by-sender/<int:sender_id>", methods=["GET"])
+def get_unread_by_sender(sender_id):
+    """
+    获取来自特定用户的未读消息数量
+    """
+    current_user_id_header = request.headers.get("X-User-ID")
+    if not current_user_id_header:
+        return jsonify({"error": "Current user ID required in X-User-ID header"}), 400
+    
+    try:
+        current_user_id = int(current_user_id_header)
+    except ValueError:
+        return jsonify({"error": "Invalid current user ID"}), 400
+    
+    try:
+        count = db_module.get_unread_count_by_sender(current_user_id, sender_id)
+        return jsonify({"unreadCount": count})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/messages/mark-read/<int:sender_id>", methods=["PUT"])
+def mark_messages_read(sender_id):
+    """
+    将来自某个用户的消息标记为已读
+    """
+    current_user_id_header = request.headers.get("X-User-ID")
+    if not current_user_id_header:
+        return jsonify({"error": "Current user ID required in X-User-ID header"}), 400
+    
+    try:
+        current_user_id = int(current_user_id_header)
+    except ValueError:
+        return jsonify({"error": "Invalid current user ID"}), 400
+    
+    try:
+        success = db_module.mark_messages_as_read(current_user_id, sender_id)
+        return jsonify({"success": success})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
