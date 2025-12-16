@@ -72,7 +72,7 @@ def create_user():
         user = db_module.create_user(name, email, pswd_hash, verified=False, confirmation_token=confirmation_token)
         
         # 生成验证链接
-        confirmation_url = f"{FRONTEND_URL}/confirm?token={confirmation_token}"
+        confirmation_url = f"{FRONTEND_URL}/#/confirm?token={confirmation_token}"
         
         # 渲染邮件模板
         html = mailer.render_template(
